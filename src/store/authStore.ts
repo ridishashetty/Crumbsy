@@ -14,18 +14,15 @@ export interface User {
   phone?: string;
   address?: string;
   cancelationDays?: number;
-  // Database ID for new schema
-  dbId?: number;
-  password?: string; // Keep for local fallback
+  dbId: number; // Always use database ID
 }
 
 interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
   loading: boolean;
-  users: User[]; // Keep local users for fallback
   login: (identifier: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  signup: (userData: Omit<User, 'id'>) => Promise<{ success: boolean; error?: string }>;
+  signup: (userData: Omit<User, 'id' | 'dbId'>) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   updateUser: (updates: Partial<User>) => Promise<void>;
   deleteUser: (userId: string) => Promise<void>;
@@ -39,39 +36,38 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       isAuthenticated: false,
       loading: true,
-      users: [], // Keep existing users as fallback
 
       initializeAuth: async () => {
         try {
-          console.log('Initializing auth...');
+          console.log('🔄 Initializing auth...');
           
-          // Check if we have a stored user and use local auth
+          // Check if we have a stored user
           const state = get();
           if (state.user) {
-            console.log('Found stored user:', state.user.username);
+            console.log('✅ Found stored user:', state.user.username);
             set({ isAuthenticated: true, loading: false });
             return;
           }
           
-          console.log('No stored user found');
+          console.log('ℹ️ No stored user found');
           set({ user: null, isAuthenticated: false, loading: false });
         } catch (error) {
-          console.error('Auth initialization error:', error);
+          console.error('❌ Auth initialization error:', error);
           set({ user: null, isAuthenticated: false, loading: false });
         }
       },
 
       login: async (identifier, password) => {
         try {
-          console.log('=== LOGIN ATTEMPT ===');
-          console.log('Identifier:', identifier);
+          console.log('🔐 Login attempt for:', identifier);
           set({ loading: true });
 
           // Special admin login
           if (identifier === 'Admin' && password === 'admin@Crumbsy') {
-            console.log('Admin login detected');
+            console.log('👑 Admin login detected');
             const adminUser: User = {
               id: 'admin-001',
+              dbId: 0, // Special case for admin
               email: 'admin@crumbsy.com',
               name: 'System Administrator',
               username: 'Admin',
@@ -84,61 +80,41 @@ export const useAuthStore = create<AuthState>()(
             return { success: true };
           }
 
-          // Try database login first
-          try {
-            console.log('Attempting database login...');
-            const { data: userData, error: loginError } = await supabase
-              .from('users')
-              .select('*')
-              .eq('username', identifier)
-              .eq('password', password)
-              .single();
+          // Database login
+          console.log('🔍 Checking database for user...');
+          const { data: userData, error: loginError } = await supabase
+            .from('users')
+            .select('*')
+            .or(`username.eq.${identifier},email.eq.${identifier}`)
+            .eq('password', password)
+            .single();
 
-            if (loginError) {
-              console.log('Database login error:', loginError.message);
-            } else if (userData) {
-              console.log('✅ Database user found:', userData.username);
-              
-              const user: User = {
-                id: `db-${userData.id}`,
-                email: userData.email,
-                name: userData.full_name,
-                username: userData.username,
-                type: userData.user_type,
-                profilePicture: userData.profile_picture || undefined,
-                location: userData.location || undefined,
-                zipCode: userData.zip_code || undefined,
-                phone: userData.phone || undefined,
-                address: userData.address || undefined,
-                cancelationDays: userData.cancellation_days || undefined,
-                dbId: userData.id
-              };
-
-              set({ user, isAuthenticated: true, loading: false });
-              console.log('✅ Database login successful');
-              return { success: true };
-            }
-          } catch (dbError) {
-            console.log('Database login failed, trying local auth:', dbError);
+          if (loginError || !userData) {
+            console.log('❌ Login failed:', loginError?.message || 'No user found');
+            set({ loading: false });
+            return { success: false, error: 'Invalid credentials' };
           }
 
-          // Fallback to local auth
-          console.log('Trying local auth...');
-          const { users } = get();
-          const user = users.find(u => 
-            (u.email === identifier || u.username === identifier) && 
-            u.password === password
-          );
+          console.log('✅ Database user found:', userData.username);
           
-          if (user) {
-            console.log('✅ Local user found:', user.username);
-            set({ user, isAuthenticated: true, loading: false });
-            return { success: true };
-          }
+          const user: User = {
+            id: `user-${userData.id}`,
+            dbId: userData.id,
+            email: userData.email,
+            name: userData.full_name,
+            username: userData.username,
+            type: userData.user_type,
+            profilePicture: userData.profile_picture || undefined,
+            location: userData.location || undefined,
+            zipCode: userData.zip_code || undefined,
+            phone: userData.phone || undefined,
+            address: userData.address || undefined,
+            cancelationDays: userData.cancellation_days || undefined,
+          };
 
-          console.log('❌ Login failed - no matching user');
-          set({ loading: false });
-          return { success: false, error: 'Invalid credentials' };
+          set({ user, isAuthenticated: true, loading: false });
+          console.log('✅ Login successful');
+          return { success: true };
         } catch (error) {
           console.error('❌ Login error:', error);
           set({ loading: false });
@@ -148,122 +124,81 @@ export const useAuthStore = create<AuthState>()(
 
       signup: async (userData) => {
         try {
-          console.log('=== SIGNUP ATTEMPT ===');
-          console.log('User data:', { ...userData, password: '[HIDDEN]' });
+          console.log('📝 Signup attempt for:', userData.email);
           set({ loading: true });
 
-          // Try database signup first
-          try {
-            console.log('Attempting database signup...');
-            
-            // Check if email already exists
-            const { data: existingUser } = await supabase
-              .from('users')
-              .select('email')
-              .eq('email', userData.email)
-              .single();
+          // Check if email already exists
+          const { data: existingEmail } = await supabase
+            .from('users')
+            .select('email')
+            .eq('email', userData.email)
+            .single();
 
-            if (existingUser) {
-              console.log('❌ Email already exists in database');
-              set({ loading: false });
-              return { success: false, error: 'An account with this email already exists' };
-            }
+          if (existingEmail) {
+            console.log('❌ Email already exists');
+            set({ loading: false });
+            return { success: false, error: 'An account with this email already exists' };
+          }
 
-            // Check if username already exists
-            const { data: existingUsername } = await supabase
-              .from('users')
-              .select('username')
-              .eq('username', userData.username)
-              .single();
+          // Check if username already exists
+          const { data: existingUsername } = await supabase
+            .from('users')
+            .select('username')
+            .eq('username', userData.username)
+            .single();
 
-            if (existingUsername) {
-              console.log('❌ Username already exists in database');
-              set({ loading: false });
-              return { success: false, error: 'This username is already taken' };
-            }
+          if (existingUsername) {
+            console.log('❌ Username already exists');
+            set({ loading: false });
+            return { success: false, error: 'This username is already taken' };
+          }
 
-            // Create new user in database
-            console.log('Creating new user in database...');
-            const { data: newUserData, error: insertError } = await supabase
-              .from('users')
-              .insert({
-                email: userData.email,
-                username: userData.username,
-                password: userData.password || 'defaultpass',
-                full_name: userData.name,
-                user_type: userData.type,
-                profile_picture: userData.profilePicture,
-                location: userData.location,
-                zip_code: userData.zipCode,
-                phone: userData.phone,
-                address: userData.address,
-                cancellation_days: userData.cancelationDays
-              })
-              .select()
-              .single();
-
-            if (insertError || !newUserData) {
-              console.error('❌ Database insert error:', insertError);
-              throw new Error('Failed to create user account');
-            }
-
-            console.log('✅ User created in database with ID:', newUserData.id);
-
-            // Create user object
-            const newUser: User = {
-              id: `db-${newUserData.id}`,
+          // Create new user
+          console.log('➕ Creating new user...');
+          const { data: newUserData, error: insertError } = await supabase
+            .from('users')
+            .insert({
               email: userData.email,
-              name: userData.name,
               username: userData.username,
-              type: userData.type,
-              profilePicture: userData.profilePicture,
+              password: (userData as any).password || 'defaultpass',
+              full_name: userData.name,
+              user_type: userData.type,
+              profile_picture: userData.profilePicture,
               location: userData.location,
-              zipCode: userData.zipCode,
+              zip_code: userData.zipCode,
               phone: userData.phone,
               address: userData.address,
-              cancelationDays: userData.cancelationDays,
-              dbId: newUserData.id
-            };
+              cancellation_days: userData.cancelationDays
+            })
+            .select()
+            .single();
 
-            set({ user: newUser, isAuthenticated: true, loading: false });
-            console.log('✅ Database signup successful');
-            return { success: true };
-          } catch (dbError) {
-            console.log('❌ Database signup failed, using local auth:', dbError);
-            
-            // Fallback to local signup
-            const { users } = get();
-            
-            // Check if email already exists locally
-            const existingUser = users.find(u => u.email === userData.email);
-            if (existingUser) {
-              set({ loading: false });
-              return { success: false, error: 'An account with this email already exists' };
-            }
-            
-            // Check if username already exists locally
-            const existingUsername = users.find(u => u.username === userData.username);
-            if (existingUsername) {
-              set({ loading: false });
-              return { success: false, error: 'This username is already taken' };
-            }
-            
-            // Create new user locally
-            const newUser: User = {
-              ...userData,
-              id: Date.now().toString(),
-            };
-            
-            set((state) => ({
-              users: [...state.users, newUser],
-              user: newUser,
-              isAuthenticated: true,
-              loading: false
-            }));
-            
-            console.log('✅ Local signup successful');
-            return { success: true };
+          if (insertError || !newUserData) {
+            console.error('❌ Database insert error:', insertError);
+            set({ loading: false });
+            return { success: false, error: 'Failed to create user account' };
           }
+
+          console.log('✅ User created with ID:', newUserData.id);
+
+          const newUser: User = {
+            id: `user-${newUserData.id}`,
+            dbId: newUserData.id,
+            email: userData.email,
+            name: userData.name,
+            username: userData.username,
+            type: userData.type,
+            profilePicture: userData.profilePicture,
+            location: userData.location,
+            zipCode: userData.zipCode,
+            phone: userData.phone,
+            address: userData.address,
+            cancelationDays: userData.cancelationDays,
+          };
+
+          set({ user: newUser, isAuthenticated: true, loading: false });
+          console.log('✅ Signup successful');
+          return { success: true };
         } catch (error) {
           console.error('❌ Signup error:', error);
           set({ loading: false });
@@ -272,74 +207,53 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: async () => {
-        console.log('=== LOGOUT ===');
+        console.log('👋 Logging out');
         set({ user: null, isAuthenticated: false });
       },
 
       updateUser: async (updates) => {
         const { user } = get();
-        if (!user) return;
+        if (!user || user.type === 'admin') return;
 
-        console.log('=== UPDATE USER ===');
-        console.log('Updates:', updates);
+        console.log('🔄 Updating user:', user.dbId);
 
         try {
-          // Try database update if user has dbId
-          if (user.dbId) {
-            console.log('Updating user in database, ID:', user.dbId);
-            const { error } = await supabase
-              .from('users')
-              .update({
-                location: updates.location,
-                zip_code: updates.zipCode,
-                phone: updates.phone,
-                address: updates.address,
-              })
-              .eq('id', user.dbId);
+          const { error } = await supabase
+            .from('users')
+            .update({
+              location: updates.location,
+              zip_code: updates.zipCode,
+              phone: updates.phone,
+              address: updates.address,
+            })
+            .eq('id', user.dbId);
 
-            if (error) {
-              console.error('❌ Update user error:', error);
-            } else {
-              console.log('✅ User updated in database');
-            }
+          if (error) {
+            console.error('❌ Update user error:', error);
+            return;
           }
 
-          // Update local state
           const updatedUser = { ...user, ...updates };
           set({ user: updatedUser });
-          
-          // Update in users array if it's a local user
-          if (!user.dbId) {
-            set((state) => ({
-              users: state.users.map(u => 
-                u.id === user.id ? updatedUser : u
-              )
-            }));
-          }
-          
-          console.log('✅ User updated locally');
+          console.log('✅ User updated');
         } catch (error) {
           console.error('❌ Update user error:', error);
         }
       },
 
       deleteUser: async (userId) => {
-        console.log('=== DELETE USER ===');
-        console.log('User ID:', userId);
-        set((state) => ({
-          users: state.users.filter(u => u.id !== userId),
-        }));
+        console.log('🗑️ Delete user not implemented for database users');
       },
 
       getAllUsers: () => {
-        const { users } = get();
-        return users;
+        // This would need to be implemented to fetch from database
+        // For now, return empty array since admin functionality needs rework
+        return [];
       },
     }),
     {
       name: 'crumbsy-auth-storage',
       partialize: (state) => ({ 
-        users: state.users,
         user: state.user,
         isAuthenticated: state.isAuthenticated,
       }),

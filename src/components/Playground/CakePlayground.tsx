@@ -102,52 +102,87 @@ export const CakePlayground: React.FC = () => {
       setLoading(true);
       
       try {
-        // Load default options (fallback if database fails)
-        const defaultCakeFlavors: CakeFlavor[] = [
-          { id: '1', name: 'Vanilla', color: '#FFF8DC' },
-          { id: '2', name: 'Chocolate', color: '#8B4513' },
-          { id: '3', name: 'Strawberry', color: '#FFB6C1' },
-          { id: '4', name: 'Lemon', color: '#FFFACD' },
-          { id: '5', name: 'Red Velvet', color: '#DC143C' },
-          { id: '6', name: 'Carrot', color: '#FF8C00' }
-        ];
+        console.log('Loading cake playground data...');
+        
+        // Load options from database
+        try {
+          const { data: flavors } = await supabase.from('cake_flavors').select('*');
+          const { data: frostings } = await supabase.from('frosting_types').select('*');
+          const { data: toppings } = await supabase.from('topping_types').select('*');
+          
+          if (flavors) {
+            const flavorOptions = flavors.map(f => ({
+              id: f.id.toString(),
+              name: f.name,
+              color: f.color
+            }));
+            setCakeFlavors(flavorOptions);
+            console.log('Loaded cake flavors from database:', flavorOptions.length);
+          }
+          
+          if (frostings) {
+            const frostingOptions = frostings.map(f => ({
+              id: f.id.toString(),
+              name: f.name,
+              defaultColor: f.default_color,
+              hasCustomColor: f.color_customizable
+            }));
+            setFrostingTypes(frostingOptions);
+            console.log('Loaded frosting types from database:', frostingOptions.length);
+          }
+          
+          if (toppings) {
+            const toppingOptions = toppings.map(t => ({
+              id: t.id.toString(),
+              name: t.name,
+              icon: t.icon
+            }));
+            setToppingTypes(toppingOptions);
+            console.log('Loaded topping types from database:', toppingOptions.length);
+          }
+        } catch (dbError) {
+          console.log('Database load failed, using defaults:', dbError);
+          
+          // Fallback to default options
+          const defaultCakeFlavors: CakeFlavor[] = [
+            { id: '1', name: 'Vanilla', color: '#FFF8DC' },
+            { id: '2', name: 'Chocolate', color: '#8B4513' },
+            { id: '3', name: 'Strawberry', color: '#FFB6C1' },
+            { id: '4', name: 'Lemon', color: '#FFFACD' },
+            { id: '5', name: 'Red Velvet', color: '#DC143C' },
+            { id: '6', name: 'Carrot', color: '#FF8C00' }
+          ];
 
-        const defaultFrostingTypes: FrostingType[] = [
-          { id: '1', name: 'American Buttercream', defaultColor: '#FFFFFF', hasCustomColor: true },
-          { id: '2', name: 'Italian Buttercream', defaultColor: '#FFFEF7', hasCustomColor: true },
-          { id: '3', name: 'French Buttercream', defaultColor: '#FFF8DC', hasCustomColor: true },
-          { id: '4', name: 'Whipped Cream', defaultColor: '#FFFAFA', hasCustomColor: true },
-          { id: '5', name: 'Ganache', defaultColor: '#654321', hasCustomColor: false },
-          { id: '6', name: 'Cream Cheese Frosting', defaultColor: '#F5F5DC', hasCustomColor: true },
-          { id: '7', name: 'Swiss Meringue', defaultColor: '#FFFEF7', hasCustomColor: true }
-        ];
+          const defaultFrostingTypes: FrostingType[] = [
+            { id: '1', name: 'American Buttercream', defaultColor: '#FFFFFF', hasCustomColor: true },
+            { id: '2', name: 'Italian Buttercream', defaultColor: '#FFFEF7', hasCustomColor: true },
+            { id: '3', name: 'French Buttercream', defaultColor: '#FFF8DC', hasCustomColor: true },
+            { id: '4', name: 'Whipped Cream', defaultColor: '#FFFAFA', hasCustomColor: true },
+            { id: '5', name: 'Ganache', defaultColor: '#654321', hasCustomColor: false },
+            { id: '6', name: 'Cream Cheese Frosting', defaultColor: '#F5F5DC', hasCustomColor: true },
+            { id: '7', name: 'Swiss Meringue', defaultColor: '#FFFEF7', hasCustomColor: true }
+          ];
 
-        const defaultToppingTypes: ToppingType[] = [
-          { id: '1', name: 'Fresh Berries', icon: '🍓' },
-          { id: '2', name: 'Chocolate Chips', icon: '🍫' },
-          { id: '3', name: 'Sprinkles', icon: '✨' },
-          { id: '4', name: 'Edible Flowers', icon: '🌸' },
-          { id: '5', name: 'Chocolate Drizzle', icon: '🍯' },
-          { id: '6', name: 'Caramel Sauce', icon: '🍮' },
-          { id: '7', name: 'Chopped Nuts', icon: '🥜' },
-          { id: '8', name: 'Candy Pieces', icon: '🍬' }
-        ];
+          const defaultToppingTypes: ToppingType[] = [
+            { id: '1', name: 'Fresh Berries', icon: '🍓' },
+            { id: '2', name: 'Chocolate Chips', icon: '🍫' },
+            { id: '3', name: 'Sprinkles', icon: '✨' },
+            { id: '4', name: 'Edible Flowers', icon: '🌸' },
+            { id: '5', name: 'Chocolate Drizzle', icon: '🍯' },
+            { id: '6', name: 'Caramel Sauce', icon: '🍮' },
+            { id: '7', name: 'Chopped Nuts', icon: '🥜' },
+            { id: '8', name: 'Candy Pieces', icon: '🍬' }
+          ];
 
-        // Set default options
-        setCakeFlavors(defaultCakeFlavors);
-        setFrostingTypes(defaultFrostingTypes);
-        setToppingTypes(defaultToppingTypes);
+          setCakeFlavors(defaultCakeFlavors);
+          setFrostingTypes(defaultFrostingTypes);
+          setToppingTypes(defaultToppingTypes);
+        }
 
         // Load user designs if user is logged in
         if (user) {
           await loadUserDesigns(user.id);
         }
-
-        // TODO: In future, load options from database tables
-        // Example queries:
-        // const { data: flavors } = await supabase.from('cake_flavors').select('*');
-        // const { data: frostings } = await supabase.from('frosting_types').select('*');
-        // const { data: toppings } = await supabase.from('topping_types').select('*');
         
       } catch (error) {
         console.error('Error loading data:', error);
@@ -431,12 +466,16 @@ export const CakePlayground: React.FC = () => {
     setSaving(true);
     
     try {
+      console.log('Starting save process...');
+      
       const designToSave = {
         ...design,
         id: design.id || Date.now().toString(),
         preview: generateCakePreview(),
         userId: user.id
       };
+      
+      console.log('Design to save:', designToSave);
       
       await saveDesign(designToSave, user.id);
       

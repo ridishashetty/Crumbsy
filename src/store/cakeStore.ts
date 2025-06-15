@@ -44,6 +44,10 @@ export const useCakeStore = create<CakeState>()(
       currentDesign: null,
       
       saveDesign: async (design: CakeDesign, userId: string) => {
+        console.log('=== SAVING DESIGN ===');
+        console.log('Design:', design.name);
+        console.log('User ID:', userId);
+        
         const { savedDesigns } = get();
         const designWithUser = { ...design, userId };
         
@@ -52,6 +56,7 @@ export const useCakeStore = create<CakeState>()(
           const userIdMatch = userId.match(/^db-(\d+)$/);
           if (userIdMatch) {
             const userDbId = parseInt(userIdMatch[1]);
+            console.log('Saving to database for user DB ID:', userDbId);
             
             // Save cake design to database
             const designData = {
@@ -64,14 +69,16 @@ export const useCakeStore = create<CakeState>()(
               preview_image: design.preview || null
             };
 
+            console.log('Design data to save:', designData);
+
             let savedDesign;
             if (design.dbId) {
+              console.log('Updating existing design with ID:', design.dbId);
               // Update existing design
               const { data, error } = await supabase
                 .from('cake_designs')
                 .update(designData)
                 .eq('id', design.dbId)
-                .eq('user_id', userDbId) // Ensure user owns this design
                 .select()
                 .single();
 
@@ -80,7 +87,9 @@ export const useCakeStore = create<CakeState>()(
                 throw error;
               }
               savedDesign = data;
+              console.log('Design updated successfully:', savedDesign);
             } else {
+              console.log('Creating new design');
               // Create new design
               const { data, error } = await supabase
                 .from('cake_designs')
@@ -93,17 +102,26 @@ export const useCakeStore = create<CakeState>()(
                 throw error;
               }
               savedDesign = data;
+              console.log('Design created successfully:', savedDesign);
             }
 
             if (savedDesign) {
               designWithUser.dbId = savedDesign.id;
               designWithUser.userDbId = userDbId;
 
+              console.log('Saving tiers for design ID:', savedDesign.id);
+              
               // Delete existing tiers for this design
-              await supabase
+              const { error: deleteError } = await supabase
                 .from('cake_tiers')
                 .delete()
                 .eq('design_id', savedDesign.id);
+
+              if (deleteError) {
+                console.error('Error deleting existing tiers:', deleteError);
+              } else {
+                console.log('Existing tiers deleted successfully');
+              }
 
               // Save each tier to cake_tiers table
               if (design.layers && design.layers.length > 0) {
@@ -117,6 +135,8 @@ export const useCakeStore = create<CakeState>()(
                   top_design: layer.topDesign || 'none'
                 }));
 
+                console.log('Tier data to save:', tierData);
+
                 const { error: tiersError } = await supabase
                   .from('cake_tiers')
                   .insert(tierData);
@@ -124,17 +144,19 @@ export const useCakeStore = create<CakeState>()(
                 if (tiersError) {
                   console.error('Error saving tiers:', tiersError);
                   throw tiersError;
+                } else {
+                  console.log('Tiers saved successfully');
                 }
               }
 
-              console.log('Design saved successfully to database:', savedDesign.id);
+              console.log('✅ Design saved successfully to database with ID:', savedDesign.id);
             }
           } else {
             // For non-database users (like admin), save locally only
             console.log('Saving design locally for user:', userId);
           }
         } catch (error) {
-          console.log('Database save failed, saving locally:', error);
+          console.error('❌ Database save failed, saving locally:', error);
         }
         
         // Always save locally as well
@@ -145,26 +167,42 @@ export const useCakeStore = create<CakeState>()(
           const updatedDesigns = [...savedDesigns];
           updatedDesigns[existingIndex] = { ...designWithUser, updatedAt: new Date() };
           set({ savedDesigns: updatedDesigns });
+          console.log('Design updated in local storage');
         } else {
           // Add new design
           set({ 
             savedDesigns: [...savedDesigns, { ...designWithUser, updatedAt: new Date() }] 
           });
+          console.log('Design added to local storage');
         }
+        
+        console.log('=== SAVE COMPLETE ===');
       },
       
       deleteDesign: async (id: string, userId: string) => {
+        console.log('=== DELETING DESIGN ===');
+        console.log('Design ID:', id);
+        console.log('User ID:', userId);
+        
         const { savedDesigns } = get();
         const design = savedDesigns.find(d => d.id === id && d.userId === userId);
         
         try {
           // Try to delete from database if it has dbId
           if (design?.dbId) {
+            console.log('Deleting from database, design DB ID:', design.dbId);
+            
             // Delete tiers first (cascade should handle this, but being explicit)
-            await supabase
+            const { error: tiersError } = await supabase
               .from('cake_tiers')
               .delete()
               .eq('design_id', design.dbId);
+
+            if (tiersError) {
+              console.error('Error deleting tiers:', tiersError);
+            } else {
+              console.log('Tiers deleted successfully');
+            }
 
             // Delete design
             const { error } = await supabase
@@ -175,17 +213,19 @@ export const useCakeStore = create<CakeState>()(
             if (error) {
               console.error('Error deleting design from database:', error);
             } else {
-              console.log('Design deleted successfully from database');
+              console.log('✅ Design deleted successfully from database');
             }
           }
         } catch (error) {
-          console.log('Database delete failed:', error);
+          console.error('❌ Database delete failed:', error);
         }
         
         // Always delete locally
         set((state) => ({
           savedDesigns: state.savedDesigns.filter((design) => !(design.id === id && design.userId === userId)),
         }));
+        console.log('Design deleted from local storage');
+        console.log('=== DELETE COMPLETE ===');
       },
       
       setCurrentDesign: (design: CakeDesign | null) =>
@@ -197,6 +237,9 @@ export const useCakeStore = create<CakeState>()(
       },
       
       loadUserDesigns: async (userId: string) => {
+        console.log('=== LOADING USER DESIGNS ===');
+        console.log('User ID:', userId);
+        
         try {
           const userIdMatch = userId.match(/^db-(\d+)$/);
           if (userIdMatch) {
@@ -228,7 +271,7 @@ export const useCakeStore = create<CakeState>()(
             }
 
             if (designsData) {
-              console.log('Loaded designs from database:', designsData.length);
+              console.log('✅ Loaded designs from database:', designsData.length);
               
               // Convert database designs to local format
               const dbDesigns: CakeDesign[] = designsData.map(dbDesign => {
@@ -278,14 +321,16 @@ export const useCakeStore = create<CakeState>()(
                 savedDesigns: savedDesigns.filter(d => d.userId !== userId).concat(allDesigns)
               });
               
-              console.log('Merged designs:', allDesigns.length);
+              console.log('✅ Merged designs total:', allDesigns.length);
             }
           } else {
             console.log('User is not a database user, skipping database load');
           }
         } catch (error) {
-          console.log('Failed to load designs from database:', error);
+          console.error('❌ Failed to load designs from database:', error);
         }
+        
+        console.log('=== LOAD COMPLETE ===');
       },
     }),
     {

@@ -107,12 +107,27 @@ export const CakePlayground: React.FC = () => {
         // Load options from database
         try {
           console.log('📥 Loading from database...');
+          
+          // Test database connection first
+          const { data: testData, error: testError } = await supabase
+            .from('users')
+            .select('count')
+            .limit(1);
+            
+          if (testError) {
+            console.error('❌ Database connection failed:', testError);
+            throw testError;
+          }
+          
+          console.log('✅ Database connection successful');
+          
           const { data: flavors, error: flavorsError } = await supabase.from('cake_flavors').select('*');
           const { data: frostings, error: frostingsError } = await supabase.from('frosting_types').select('*');
           const { data: toppings, error: toppingsError } = await supabase.from('topping_types').select('*');
           
           if (flavorsError) {
             console.error('❌ Error loading flavors:', flavorsError);
+            throw flavorsError;
           } else if (flavors) {
             const flavorOptions = flavors.map(f => ({
               id: f.id.toString(),
@@ -125,6 +140,7 @@ export const CakePlayground: React.FC = () => {
           
           if (frostingsError) {
             console.error('❌ Error loading frostings:', frostingsError);
+            throw frostingsError;
           } else if (frostings) {
             const frostingOptions = frostings.map(f => ({
               id: f.id.toString(),
@@ -138,6 +154,7 @@ export const CakePlayground: React.FC = () => {
           
           if (toppingsError) {
             console.error('❌ Error loading toppings:', toppingsError);
+            throw toppingsError;
           } else if (toppings) {
             const toppingOptions = toppings.map(t => ({
               id: t.id.toString(),
@@ -146,11 +163,6 @@ export const CakePlayground: React.FC = () => {
             }));
             setToppingTypes(toppingOptions);
             console.log('✅ Loaded topping types from database:', toppingOptions.length);
-          }
-          
-          // If any database load failed, use defaults
-          if (flavorsError || frostingsError || toppingsError) {
-            throw new Error('Some database loads failed');
           }
           
         } catch (dbError) {

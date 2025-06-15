@@ -51,7 +51,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onToggleMode }) => {
           <div className="space-y-4">
             <div>
               <label htmlFor="identifier" className="sr-only">
-                Email or Username
+                Username
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -66,7 +66,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onToggleMode }) => {
                   onChange={(e) => setIdentifier(e.target.value)}
                   disabled={loading}
                   className="appearance-none relative block w-full px-10 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm disabled:opacity-50"
-                  placeholder={isAdminLogin ? 'Admin Username' : 'Email or Username'}
+                  placeholder={isAdminLogin ? 'Admin Username' : 'Username'}
                 />
               </div>
             </div>

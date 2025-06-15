@@ -53,25 +53,71 @@ export const useCakeStore = create<CakeState>()(
           if (userIdMatch) {
             const userDbId = parseInt(userIdMatch[1]);
             
-            // Save to database using correct table name
-            const { data, error } = await supabase
-              .from('cake_designs')
-              .upsert({
-                id: design.dbId || undefined,
-                name: design.name,
-                user_id: userDbId,
-                shape: design.shape,
-                buttercream: design.buttercream,
-                toppings: design.toppings,
-                top_text: design.topText || null,
-                preview_image: design.preview || null
-              })
-              .select()
-              .single();
+            // Save cake design to database
+            const designData = {
+              name: design.name,
+              user_id: userDbId,
+              shape: design.shape,
+              buttercream: design.buttercream,
+              toppings: design.toppings,
+              top_text: design.topText || null,
+              preview_image: design.preview || null
+            };
 
-            if (!error && data) {
-              designWithUser.dbId = data.id;
+            let savedDesign;
+            if (design.dbId) {
+              // Update existing design
+              const { data, error } = await supabase
+                .from('cake_designs')
+                .update(designData)
+                .eq('id', design.dbId)
+                .select()
+                .single();
+
+              if (error) throw error;
+              savedDesign = data;
+            } else {
+              // Create new design
+              const { data, error } = await supabase
+                .from('cake_designs')
+                .insert(designData)
+                .select()
+                .single();
+
+              if (error) throw error;
+              savedDesign = data;
+            }
+
+            if (savedDesign) {
+              designWithUser.dbId = savedDesign.id;
               designWithUser.userDbId = userDbId;
+
+              // Delete existing tiers for this design
+              await supabase
+                .from('cake_tiers')
+                .delete()
+                .eq('design_id', savedDesign.id);
+
+              // Save each tier to cake_tiers table
+              if (design.layers && design.layers.length > 0) {
+                const tierData = design.layers.map((layer, index) => ({
+                  design_id: savedDesign.id,
+                  tier_order: index + 1,
+                  flavor: layer.flavor,
+                  color: layer.color,
+                  frosting: layer.frosting || 'american buttercream',
+                  frosting_color: layer.frostingColor || '#FFFFFF',
+                  top_design: layer.topDesign || 'none'
+                }));
+
+                const { error: tiersError } = await supabase
+                  .from('cake_tiers')
+                  .insert(tierData);
+
+                if (tiersError) {
+                  console.error('Error saving tiers:', tiersError);
+                }
+              }
             }
           }
         } catch (error) {
@@ -101,6 +147,13 @@ export const useCakeStore = create<CakeState>()(
         try {
           // Try to delete from database if it has dbId
           if (design?.dbId) {
+            // Delete tiers first (cascade should handle this, but being explicit)
+            await supabase
+              .from('cake_tiers')
+              .delete()
+              .eq('design_id', design.dbId);
+
+            // Delete design
             await supabase
               .from('cake_designs')
               .delete()
@@ -130,29 +183,63 @@ export const useCakeStore = create<CakeState>()(
           if (userIdMatch) {
             const userDbId = parseInt(userIdMatch[1]);
             
-            const { data, error } = await supabase
+            // Load designs with their tiers
+            const { data: designsData, error: designsError } = await supabase
               .from('cake_designs')
-              .select('*')
-              .eq('user_id', userDbId);
+              .select(`
+                *,
+                cake_tiers (
+                  id,
+                  tier_order,
+                  flavor,
+                  color,
+                  frosting,
+                  frosting_color,
+                  top_design
+                )
+              `)
+              .eq('user_id', userDbId)
+              .order('updated_at', { ascending: false });
 
-            if (!error && data) {
+            if (!designsError && designsData) {
               // Convert database designs to local format
-              const dbDesigns: CakeDesign[] = data.map(dbDesign => ({
-                id: `db-${dbDesign.id}`,
-                name: dbDesign.name,
-                shape: dbDesign.shape || 'round',
-                layers: [
-                  { flavor: 'chocolate', color: '#8B4513', topDesign: 'none', frosting: 'american buttercream', frostingColor: '#FFFFFF' }
-                ], // Default layer
-                buttercream: dbDesign.buttercream || { flavor: 'vanilla', color: '#FFFFFF' },
-                toppings: dbDesign.toppings || [],
-                topText: dbDesign.top_text || '',
-                updatedAt: new Date(dbDesign.updated_at || dbDesign.created_at),
-                userId: userId,
-                preview: dbDesign.preview_image || undefined,
-                dbId: dbDesign.id,
-                userDbId: dbDesign.user_id
-              }));
+              const dbDesigns: CakeDesign[] = designsData.map(dbDesign => {
+                // Sort tiers by tier_order and convert to layers format
+                const sortedTiers = (dbDesign.cake_tiers || []).sort((a: any, b: any) => a.tier_order - b.tier_order);
+                const layers = sortedTiers.map((tier: any) => ({
+                  flavor: tier.flavor,
+                  color: tier.color,
+                  frosting: tier.frosting,
+                  frostingColor: tier.frosting_color,
+                  topDesign: tier.top_design
+                }));
+
+                // If no tiers exist, create a default layer
+                if (layers.length === 0) {
+                  layers.push({
+                    flavor: 'chocolate',
+                    color: '#8B4513',
+                    topDesign: 'none',
+                    frosting: 'american buttercream',
+                    frostingColor: '#FFFFFF'
+                  });
+                }
+
+                return {
+                  id: `db-${dbDesign.id}`,
+                  name: dbDesign.name,
+                  shape: dbDesign.shape || 'round',
+                  layers: layers,
+                  buttercream: dbDesign.buttercream || { flavor: 'vanilla', color: '#FFFFFF' },
+                  toppings: dbDesign.toppings || [],
+                  topText: dbDesign.top_text || '',
+                  updatedAt: new Date(dbDesign.updated_at || dbDesign.created_at),
+                  userId: userId,
+                  preview: dbDesign.preview_image || undefined,
+                  dbId: dbDesign.id,
+                  userDbId: dbDesign.user_id
+                };
+              });
 
               // Merge with existing local designs
               const { savedDesigns } = get();

@@ -48,7 +48,7 @@ export const useCakeStore = create<CakeState>()(
         const designWithUser = { ...design, userId };
         
         try {
-          // Try to save to database if user has userDbId
+          // For database users, save to Supabase
           const userIdMatch = userId.match(/^db-(\d+)$/);
           if (userIdMatch) {
             const userDbId = parseInt(userIdMatch[1]);
@@ -71,10 +71,14 @@ export const useCakeStore = create<CakeState>()(
                 .from('cake_designs')
                 .update(designData)
                 .eq('id', design.dbId)
+                .eq('user_id', userDbId) // Ensure user owns this design
                 .select()
                 .single();
 
-              if (error) throw error;
+              if (error) {
+                console.error('Error updating design:', error);
+                throw error;
+              }
               savedDesign = data;
             } else {
               // Create new design
@@ -84,7 +88,10 @@ export const useCakeStore = create<CakeState>()(
                 .select()
                 .single();
 
-              if (error) throw error;
+              if (error) {
+                console.error('Error creating design:', error);
+                throw error;
+              }
               savedDesign = data;
             }
 
@@ -116,9 +123,15 @@ export const useCakeStore = create<CakeState>()(
 
                 if (tiersError) {
                   console.error('Error saving tiers:', tiersError);
+                  throw tiersError;
                 }
               }
+
+              console.log('Design saved successfully to database:', savedDesign.id);
             }
+          } else {
+            // For non-database users (like admin), save locally only
+            console.log('Saving design locally for user:', userId);
           }
         } catch (error) {
           console.log('Database save failed, saving locally:', error);
@@ -154,10 +167,16 @@ export const useCakeStore = create<CakeState>()(
               .eq('design_id', design.dbId);
 
             // Delete design
-            await supabase
+            const { error } = await supabase
               .from('cake_designs')
               .delete()
               .eq('id', design.dbId);
+
+            if (error) {
+              console.error('Error deleting design from database:', error);
+            } else {
+              console.log('Design deleted successfully from database');
+            }
           }
         } catch (error) {
           console.log('Database delete failed:', error);
@@ -183,6 +202,8 @@ export const useCakeStore = create<CakeState>()(
           if (userIdMatch) {
             const userDbId = parseInt(userIdMatch[1]);
             
+            console.log('Loading designs for user DB ID:', userDbId);
+            
             // Load designs with their tiers
             const { data: designsData, error: designsError } = await supabase
               .from('cake_designs')
@@ -201,7 +222,14 @@ export const useCakeStore = create<CakeState>()(
               .eq('user_id', userDbId)
               .order('updated_at', { ascending: false });
 
-            if (!designsError && designsData) {
+            if (designsError) {
+              console.error('Error loading designs:', designsError);
+              return;
+            }
+
+            if (designsData) {
+              console.log('Loaded designs from database:', designsData.length);
+              
               // Convert database designs to local format
               const dbDesigns: CakeDesign[] = designsData.map(dbDesign => {
                 // Sort tiers by tier_order and convert to layers format
@@ -249,7 +277,11 @@ export const useCakeStore = create<CakeState>()(
               set({ 
                 savedDesigns: savedDesigns.filter(d => d.userId !== userId).concat(allDesigns)
               });
+              
+              console.log('Merged designs:', allDesigns.length);
             }
+          } else {
+            console.log('User is not a database user, skipping database load');
           }
         } catch (error) {
           console.log('Failed to load designs from database:', error);

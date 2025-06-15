@@ -43,7 +43,43 @@ export const useAuthStore = create<AuthState>()(
 
       initializeAuth: async () => {
         try {
-          // For now, just check if we have a stored user and use local auth
+          // Check if we have a stored user session
+          const { data: { session } } = await supabase.auth.getSession();
+          
+          if (session?.user) {
+            // User is authenticated with Supabase
+            try {
+              const { data: userData, error } = await supabase
+                .from('users')
+                .select('*')
+                .eq('email', session.user.email)
+                .single();
+
+              if (!error && userData) {
+                const user: User = {
+                  id: session.user.id,
+                  email: userData.email,
+                  name: userData.full_name,
+                  username: userData.username,
+                  type: userData.user_type,
+                  profilePicture: userData.profile_picture || undefined,
+                  location: userData.location || undefined,
+                  zipCode: userData.zip_code || undefined,
+                  phone: userData.phone || undefined,
+                  address: userData.address || undefined,
+                  cancelationDays: userData.cancellation_days || undefined,
+                  dbId: userData.id
+                };
+
+                set({ user, isAuthenticated: true, loading: false });
+                return;
+              }
+            } catch (error) {
+              console.error('Error fetching user data:', error);
+            }
+          }
+          
+          // Fallback to local auth if no Supabase session
           const state = get();
           if (state.user) {
             set({ isAuthenticated: true, loading: false });
@@ -88,23 +124,56 @@ export const useAuthStore = create<AuthState>()(
             if (loginError) {
               console.log('Database login error:', loginError);
             } else if (userData) {
-              const user: User = {
-                id: `db-${userData.id}`,
-                email: userData.email,
-                name: userData.full_name,
-                username: userData.username,
-                type: userData.user_type,
-                profilePicture: userData.profile_picture || undefined,
-                location: userData.location || undefined,
-                zipCode: userData.zip_code || undefined,
-                phone: userData.phone || undefined,
-                address: userData.address || undefined,
-                cancelationDays: userData.cancellation_days || undefined,
-                dbId: userData.id
-              };
+              // Create a Supabase auth session for this user
+              try {
+                const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+                  email: userData.email,
+                  password: password
+                });
 
-              set({ user, isAuthenticated: true, loading: false });
-              return { success: true };
+                if (authError) {
+                  // If Supabase auth fails, create a custom session
+                  console.log('Supabase auth failed, using custom session');
+                }
+
+                const user: User = {
+                  id: authData?.user?.id || `db-${userData.id}`,
+                  email: userData.email,
+                  name: userData.full_name,
+                  username: userData.username,
+                  type: userData.user_type,
+                  profilePicture: userData.profile_picture || undefined,
+                  location: userData.location || undefined,
+                  zipCode: userData.zip_code || undefined,
+                  phone: userData.phone || undefined,
+                  address: userData.address || undefined,
+                  cancelationDays: userData.cancellation_days || undefined,
+                  dbId: userData.id
+                };
+
+                set({ user, isAuthenticated: true, loading: false });
+                return { success: true };
+              } catch (authError) {
+                console.log('Auth session creation failed, proceeding with local auth');
+                
+                const user: User = {
+                  id: `db-${userData.id}`,
+                  email: userData.email,
+                  name: userData.full_name,
+                  username: userData.username,
+                  type: userData.user_type,
+                  profilePicture: userData.profile_picture || undefined,
+                  location: userData.location || undefined,
+                  zipCode: userData.zip_code || undefined,
+                  phone: userData.phone || undefined,
+                  address: userData.address || undefined,
+                  cancelationDays: userData.cancellation_days || undefined,
+                  dbId: userData.id
+                };
+
+                set({ user, isAuthenticated: true, loading: false });
+                return { success: true };
+              }
             }
           } catch (dbError) {
             console.log('Database login failed, trying local auth:', dbError);
@@ -161,6 +230,27 @@ export const useAuthStore = create<AuthState>()(
               return { success: false, error: 'This username is already taken' };
             }
 
+            // Create Supabase auth user first
+            let authUserId = null;
+            try {
+              const { data: authData, error: authError } = await supabase.auth.signUp({
+                email: userData.email,
+                password: userData.password || 'defaultpass',
+                options: {
+                  data: {
+                    full_name: userData.name,
+                    username: userData.username
+                  }
+                }
+              });
+
+              if (!authError && authData.user) {
+                authUserId = authData.user.id;
+              }
+            } catch (authError) {
+              console.log('Supabase auth signup failed, proceeding with database only');
+            }
+
             // Create new user in database
             const { data: newUserData, error: insertError } = await supabase
               .from('users')
@@ -186,7 +276,7 @@ export const useAuthStore = create<AuthState>()(
 
             // Create user object
             const newUser: User = {
-              id: `db-${newUserData.id}`,
+              id: authUserId || `db-${newUserData.id}`,
               email: userData.email,
               name: userData.name,
               username: userData.username,
@@ -245,6 +335,11 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: async () => {
+        try {
+          await supabase.auth.signOut();
+        } catch (error) {
+          console.log('Supabase logout error:', error);
+        }
         set({ user: null, isAuthenticated: false });
       },
 

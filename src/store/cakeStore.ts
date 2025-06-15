@@ -23,8 +23,8 @@ export interface CakeDesign {
   preview?: string; // Base64 encoded image for card display
   userId: string; // Add user isolation
   // Database fields
-  id_cd?: number;
-  id_ua?: number;
+  dbId?: number;
+  userDbId?: number;
 }
 
 interface CakeState {
@@ -48,28 +48,30 @@ export const useCakeStore = create<CakeState>()(
         const designWithUser = { ...design, userId };
         
         try {
-          // Try to save to database if user has id_ua
+          // Try to save to database if user has userDbId
           const userIdMatch = userId.match(/^db-(\d+)$/);
           if (userIdMatch) {
-            const id_ua = parseInt(userIdMatch[1]);
+            const userDbId = parseInt(userIdMatch[1]);
             
-            // Save to database
+            // Save to database using correct table name
             const { data, error } = await supabase
-              .from('CakeDesign')
+              .from('cake_designs')
               .upsert({
-                id_cd: design.id_cd || undefined,
-                cd_Name: design.name,
-                id_ua: id_ua,
-                cd_TextOnCake: design.topText || null,
-                created_by: id_ua,
-                updated_by: id_ua
+                id: design.dbId || undefined,
+                name: design.name,
+                user_id: userDbId,
+                shape: design.shape,
+                buttercream: design.buttercream,
+                toppings: design.toppings,
+                top_text: design.topText || null,
+                preview_image: design.preview || null
               })
               .select()
               .single();
 
             if (!error && data) {
-              designWithUser.id_cd = data.id_cd;
-              designWithUser.id_ua = id_ua;
+              designWithUser.dbId = data.id;
+              designWithUser.userDbId = userDbId;
             }
           }
         } catch (error) {
@@ -97,12 +99,12 @@ export const useCakeStore = create<CakeState>()(
         const design = savedDesigns.find(d => d.id === id && d.userId === userId);
         
         try {
-          // Try to delete from database if it has id_cd
-          if (design?.id_cd) {
+          // Try to delete from database if it has dbId
+          if (design?.dbId) {
             await supabase
-              .from('CakeDesign')
+              .from('cake_designs')
               .delete()
-              .eq('id_cd', design.id_cd);
+              .eq('id', design.dbId);
           }
         } catch (error) {
           console.log('Database delete failed:', error);
@@ -126,34 +128,35 @@ export const useCakeStore = create<CakeState>()(
         try {
           const userIdMatch = userId.match(/^db-(\d+)$/);
           if (userIdMatch) {
-            const id_ua = parseInt(userIdMatch[1]);
+            const userDbId = parseInt(userIdMatch[1]);
             
             const { data, error } = await supabase
-              .from('CakeDesign')
+              .from('cake_designs')
               .select('*')
-              .eq('id_ua', id_ua);
+              .eq('user_id', userDbId);
 
             if (!error && data) {
               // Convert database designs to local format
               const dbDesigns: CakeDesign[] = data.map(dbDesign => ({
-                id: `db-${dbDesign.id_cd}`,
-                name: dbDesign.cd_Name,
-                shape: 'round' as const, // Default shape
+                id: `db-${dbDesign.id}`,
+                name: dbDesign.name,
+                shape: dbDesign.shape || 'round',
                 layers: [
                   { flavor: 'chocolate', color: '#8B4513', topDesign: 'none', frosting: 'american buttercream', frostingColor: '#FFFFFF' }
                 ], // Default layer
-                buttercream: { flavor: 'vanilla', color: '#FFFFFF' },
-                toppings: [],
-                topText: dbDesign.cd_TextOnCake || '',
+                buttercream: dbDesign.buttercream || { flavor: 'vanilla', color: '#FFFFFF' },
+                toppings: dbDesign.toppings || [],
+                topText: dbDesign.top_text || '',
                 updatedAt: new Date(dbDesign.updated_at || dbDesign.created_at),
                 userId: userId,
-                id_cd: dbDesign.id_cd,
-                id_ua: dbDesign.id_ua
+                preview: dbDesign.preview_image || undefined,
+                dbId: dbDesign.id,
+                userDbId: dbDesign.user_id
               }));
 
               // Merge with existing local designs
               const { savedDesigns } = get();
-              const localDesigns = savedDesigns.filter(d => d.userId === userId && !d.id_cd);
+              const localDesigns = savedDesigns.filter(d => d.userId === userId && !d.dbId);
               const allDesigns = [...localDesigns, ...dbDesigns];
               
               set({ 

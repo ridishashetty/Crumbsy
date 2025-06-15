@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { supabase } from '../lib/supabase';
-import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 export interface User {
   id: string;
@@ -24,6 +23,7 @@ interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
   loading: boolean;
+  users: User[]; // Keep local users for fallback
   login: (identifier: string, password: string) => Promise<{ success: boolean; error?: string }>;
   signup: (userData: Omit<User, 'id'>) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
@@ -39,18 +39,15 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       isAuthenticated: false,
       loading: true,
+      users: [], // Keep existing users as fallback
 
       initializeAuth: async () => {
         try {
-          const { data: { session } } = await supabase.auth.getSession();
-          
-          if (session?.user) {
-            // Get user data from database
-            const userData = await getUserFromDatabase(session.user);
-            if (userData) {
-              set({ user: userData, isAuthenticated: true, loading: false });
-              return;
-            }
+          // For now, just check if we have a stored user and use local auth
+          const state = get();
+          if (state.user) {
+            set({ isAuthenticated: true, loading: false });
+            return;
           }
           
           set({ user: null, isAuthenticated: false, loading: false });
@@ -79,85 +76,119 @@ export const useAuthStore = create<AuthState>()(
             return { success: true };
           }
 
-          // Check if identifier is email or username
-          let email = identifier;
-          
-          // If it doesn't contain @, it's a username - look up email
-          if (!identifier.includes('@')) {
-            const { data: loginData, error: loginError } = await supabase
-              .from('LoginInfo')
-              .select(`
-                UserAccount!inner(ua_Email)
-              `)
-              .eq('li_Username', identifier)
-              .eq('li_Password', password)
-              .limit(1);
-
-            if (loginError || !loginData || loginData.length === 0) {
-              set({ loading: false });
-              return { success: false, error: 'Invalid credentials' };
-            }
-
-            email = loginData[0].UserAccount.ua_Email;
-          } else {
-            // Verify email/password combination
-            const { data: loginData, error: loginError } = await supabase
-              .from('LoginInfo')
-              .select(`
-                UserAccount!inner(ua_Email)
-              `)
-              .eq('UserAccount.ua_Email', email)
-              .eq('li_Password', password)
-              .limit(1);
-
-            if (loginError || !loginData || loginData.length === 0) {
-              set({ loading: false });
-              return { success: false, error: 'Invalid credentials' };
-            }
-          }
-
-          // Sign in with Supabase Auth using email
-          const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-            email,
-            password
-          });
-
-          if (authError) {
-            // If user doesn't exist in Supabase Auth, create them
-            if (authError.message.includes('Invalid login credentials')) {
-              const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-                email,
-                password
-              });
-
-              if (signUpError) {
-                set({ loading: false });
-                return { success: false, error: signUpError.message };
-              }
-
-              if (signUpData.user) {
-                const userData = await getUserFromDatabase(signUpData.user);
-                if (userData) {
-                  set({ user: userData, isAuthenticated: true, loading: false });
-                  return { success: true };
-                }
-              }
-            }
+          // Try database login first
+          try {
+            let email = identifier;
+            let userData = null;
             
-            set({ loading: false });
-            return { success: false, error: authError.message };
-          }
+            // If it doesn't contain @, it's a username - look up email
+            if (!identifier.includes('@')) {
+              const { data: loginData, error: loginError } = await supabase
+                .from('LoginInfo')
+                .select(`
+                  li_Username,
+                  li_Password,
+                  UserAccount!inner(
+                    id_ua,
+                    ua_Email,
+                    ua_FullName,
+                    ua_ZipCode,
+                    ua_FullAddress,
+                    id_at,
+                    AccountType(at_AccountType)
+                  )
+                `)
+                .eq('li_Username', identifier)
+                .eq('li_Password', password)
+                .limit(1);
 
-          if (authData.user) {
-            const userData = await getUserFromDatabase(authData.user);
+              if (!loginError && loginData && loginData.length > 0) {
+                const dbUser = loginData[0];
+                const accountTypeMap: { [key: string]: 'buyer' | 'baker' | 'admin' } = {
+                  'buyer': 'buyer',
+                  'baker': 'baker', 
+                  'admin': 'admin'
+                };
+
+                userData = {
+                  id: `db-${dbUser.UserAccount.id_ua}`,
+                  email: dbUser.UserAccount.ua_Email,
+                  name: dbUser.UserAccount.ua_FullName,
+                  username: dbUser.li_Username,
+                  type: accountTypeMap[dbUser.UserAccount.AccountType?.at_AccountType] || 'buyer',
+                  location: dbUser.UserAccount.ua_FullAddress,
+                  zipCode: dbUser.UserAccount.ua_ZipCode?.toString(),
+                  id_ua: dbUser.UserAccount.id_ua,
+                  id_at: dbUser.UserAccount.id_at,
+                  profilePicture: `https://images.pexels.com/photos/771742/pexels-photo-771742.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&dpr=1`
+                };
+              }
+            } else {
+              // Email login
+              const { data: loginData, error: loginError } = await supabase
+                .from('LoginInfo')
+                .select(`
+                  li_Username,
+                  li_Password,
+                  UserAccount!inner(
+                    id_ua,
+                    ua_Email,
+                    ua_FullName,
+                    ua_ZipCode,
+                    ua_FullAddress,
+                    id_at,
+                    AccountType(at_AccountType)
+                  )
+                `)
+                .eq('UserAccount.ua_Email', email)
+                .eq('li_Password', password)
+                .limit(1);
+
+              if (!loginError && loginData && loginData.length > 0) {
+                const dbUser = loginData[0];
+                const accountTypeMap: { [key: string]: 'buyer' | 'baker' | 'admin' } = {
+                  'buyer': 'buyer',
+                  'baker': 'baker', 
+                  'admin': 'admin'
+                };
+
+                userData = {
+                  id: `db-${dbUser.UserAccount.id_ua}`,
+                  email: dbUser.UserAccount.ua_Email,
+                  name: dbUser.UserAccount.ua_FullName,
+                  username: dbUser.li_Username,
+                  type: accountTypeMap[dbUser.UserAccount.AccountType?.at_AccountType] || 'buyer',
+                  location: dbUser.UserAccount.ua_FullAddress,
+                  zipCode: dbUser.UserAccount.ua_ZipCode?.toString(),
+                  id_ua: dbUser.UserAccount.id_ua,
+                  id_at: dbUser.UserAccount.id_at,
+                  profilePicture: `https://images.pexels.com/photos/771742/pexels-photo-771742.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&dpr=1`
+                };
+              }
+            }
+
             if (userData) {
               set({ user: userData, isAuthenticated: true, loading: false });
               return { success: true };
             }
+          } catch (dbError) {
+            console.log('Database login failed, trying local auth:', dbError);
+          }
+
+          // Fallback to local auth
+          const { users } = get();
+          const user = users.find(u => 
+            (u.email === identifier || u.username === identifier) && 
+            u.password === password
+          );
+          
+          if (user) {
+            set({ user, isAuthenticated: true, loading: false });
+            return { success: true };
           }
 
           set({ loading: false });
-          return { success: false, error: 'Failed to load user data' };
+          return { success: false, error: 'Invalid credentials' };
         } catch (error) {
           console.error('Login error:', error);
           set({ loading: false });
@@ -169,101 +200,120 @@ export const useAuthStore = create<AuthState>()(
         try {
           set({ loading: true });
 
-          // Check if email already exists
-          const { data: existingUser } = await supabase
-            .from('UserAccount')
-            .select('ua_Email')
-            .eq('ua_Email', userData.email)
-            .limit(1);
+          // Try database signup first
+          try {
+            // Check if email already exists
+            const { data: existingUser } = await supabase
+              .from('UserAccount')
+              .select('ua_Email')
+              .eq('ua_Email', userData.email)
+              .limit(1);
 
-          if (existingUser && existingUser.length > 0) {
-            set({ loading: false });
-            return { success: false, error: 'An account with this email already exists' };
-          }
+            if (existingUser && existingUser.length > 0) {
+              set({ loading: false });
+              return { success: false, error: 'An account with this email already exists' };
+            }
 
-          // Check if username already exists
-          const { data: existingUsername } = await supabase
-            .from('LoginInfo')
-            .select('li_Username')
-            .eq('li_Username', userData.username)
-            .limit(1);
+            // Check if username already exists
+            const { data: existingUsername } = await supabase
+              .from('LoginInfo')
+              .select('li_Username')
+              .eq('li_Username', userData.username)
+              .limit(1);
 
-          if (existingUsername && existingUsername.length > 0) {
-            set({ loading: false });
-            return { success: false, error: 'This username is already taken' };
-          }
+            if (existingUsername && existingUsername.length > 0) {
+              set({ loading: false });
+              return { success: false, error: 'This username is already taken' };
+            }
 
-          // Create Supabase Auth user
-          const { data: authData, error: authError } = await supabase.auth.signUp({
-            email: userData.email,
-            password: userData.password
-          });
+            // Get account type ID
+            const accountTypeMap = { buyer: 3, baker: 2, admin: 1 }; // Updated mapping
+            const accountTypeId = accountTypeMap[userData.type];
 
-          if (authError) {
-            set({ loading: false });
-            return { success: false, error: authError.message };
-          }
+            // Create UserAccount record
+            const { data: userAccountData, error: userAccountError } = await supabase
+              .from('UserAccount')
+              .insert({
+                ua_FullName: userData.name,
+                ua_Email: userData.email,
+                ua_ZipCode: userData.zipCode ? parseInt(userData.zipCode) : null,
+                ua_FullAddress: userData.location,
+                id_at: accountTypeId,
+                created_by: null
+              })
+              .select()
+              .limit(1);
 
-          if (!authData.user) {
-            set({ loading: false });
-            return { success: false, error: 'Failed to create account' };
-          }
+            if (userAccountError || !userAccountData || userAccountData.length === 0) {
+              throw new Error('Failed to create user account');
+            }
 
-          // Get account type ID
-          const accountTypeMap = { buyer: 1, baker: 2, admin: 3 };
-          const accountTypeId = accountTypeMap[userData.type];
+            // Create LoginInfo record
+            const { error: loginInfoError } = await supabase
+              .from('LoginInfo')
+              .insert({
+                id_ua: userAccountData[0].id_ua,
+                li_Username: userData.username,
+                li_Password: userData.password,
+                created_by: userAccountData[0].id_ua
+              });
 
-          // Create UserAccount record
-          const { data: userAccountData, error: userAccountError } = await supabase
-            .from('UserAccount')
-            .insert({
-              ua_FullName: userData.name,
-              ua_Email: userData.email,
-              ua_ZipCode: userData.zipCode ? parseInt(userData.zipCode) : null,
-              ua_FullAddress: userData.location,
-              id_at: accountTypeId,
-              created_by: null
-            })
-            .select()
-            .limit(1);
+            if (loginInfoError) {
+              throw new Error('Failed to create login information');
+            }
 
-          if (userAccountError || !userAccountData || userAccountData.length === 0) {
-            set({ loading: false });
-            return { success: false, error: 'Failed to create user account' };
-          }
-
-          // Create LoginInfo record
-          const { error: loginInfoError } = await supabase
-            .from('LoginInfo')
-            .insert({
+            // Create user object
+            const newUser: User = {
+              id: `db-${userAccountData[0].id_ua}`,
+              email: userData.email,
+              name: userData.name,
+              username: userData.username,
+              type: userData.type,
+              profilePicture: userData.profilePicture,
+              location: userData.location,
+              zipCode: userData.zipCode,
+              cancelationDays: userData.cancelationDays,
               id_ua: userAccountData[0].id_ua,
-              li_Username: userData.username,
-              li_Password: userData.password,
-              created_by: userAccountData[0].id_ua
-            });
+              id_at: accountTypeId
+            };
 
-          if (loginInfoError) {
-            set({ loading: false });
-            return { success: false, error: 'Failed to create login information' };
+            set({ user: newUser, isAuthenticated: true, loading: false });
+            return { success: true };
+          } catch (dbError) {
+            console.log('Database signup failed, using local auth:', dbError);
+            
+            // Fallback to local signup
+            const { users } = get();
+            
+            // Check if email already exists locally
+            const existingUser = users.find(u => u.email === userData.email);
+            if (existingUser) {
+              set({ loading: false });
+              return { success: false, error: 'An account with this email already exists' };
+            }
+            
+            // Check if username already exists locally
+            const existingUsername = users.find(u => u.username === userData.username);
+            if (existingUsername) {
+              set({ loading: false });
+              return { success: false, error: 'This username is already taken' };
+            }
+            
+            // Create new user locally
+            const newUser: User = {
+              ...userData,
+              id: Date.now().toString(),
+            };
+            
+            set((state) => ({
+              users: [...state.users, newUser],
+              user: newUser,
+              isAuthenticated: true,
+              loading: false
+            }));
+            
+            return { success: true };
           }
-
-          // Create user object
-          const newUser: User = {
-            id: authData.user.id,
-            email: userData.email,
-            name: userData.name,
-            username: userData.username,
-            type: userData.type,
-            profilePicture: userData.profilePicture,
-            location: userData.location,
-            zipCode: userData.zipCode,
-            cancelationDays: userData.cancelationDays,
-            id_ua: userAccountData[0].id_ua,
-            id_at: accountTypeId
-          };
-
-          set({ user: newUser, isAuthenticated: true, loading: false });
-          return { success: true };
         } catch (error) {
           console.error('Signup error:', error);
           set({ loading: false });
@@ -272,51 +322,61 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: async () => {
-        await supabase.auth.signOut();
         set({ user: null, isAuthenticated: false });
       },
 
       updateUser: async (updates) => {
         const { user } = get();
-        if (!user || !user.id_ua) return;
+        if (!user) return;
 
         try {
-          // Update UserAccount table
-          const { error } = await supabase
-            .from('UserAccount')
-            .update({
-              ua_ZipCode: updates.zipCode ? parseInt(updates.zipCode) : null,
-              ua_FullAddress: updates.address || updates.location,
-            })
-            .eq('id_ua', user.id_ua);
+          // Try database update if user has id_ua
+          if (user.id_ua) {
+            const { error } = await supabase
+              .from('UserAccount')
+              .update({
+                ua_ZipCode: updates.zipCode ? parseInt(updates.zipCode) : null,
+                ua_FullAddress: updates.address || updates.location,
+              })
+              .eq('id_ua', user.id_ua);
 
-          if (error) {
-            console.error('Update user error:', error);
-            return;
+            if (error) {
+              console.error('Update user error:', error);
+            }
           }
 
           // Update local state
           const updatedUser = { ...user, ...updates };
           set({ user: updatedUser });
+          
+          // Update in users array if it's a local user
+          if (!user.id_ua) {
+            set((state) => ({
+              users: state.users.map(u => 
+                u.id === user.id ? updatedUser : u
+              )
+            }));
+          }
         } catch (error) {
           console.error('Update user error:', error);
         }
       },
 
       deleteUser: async (userId) => {
-        // Admin function - implement as needed
-        console.log('Delete user:', userId);
+        set((state) => ({
+          users: state.users.filter(u => u.id !== userId),
+        }));
       },
 
       getAllUsers: () => {
-        // Admin function - return empty array for now
-        // In a real implementation, this would fetch from the database
-        return [];
+        const { users } = get();
+        return users;
       },
     }),
     {
       name: 'crumbsy-auth-storage',
       partialize: (state) => ({ 
+        users: state.users,
         user: state.user,
         isAuthenticated: state.isAuthenticated,
       }),
@@ -324,62 +384,7 @@ export const useAuthStore = create<AuthState>()(
   )
 );
 
-// Helper function to get user data from database
-async function getUserFromDatabase(supabaseUser: SupabaseUser): Promise<User | null> {
-  try {
-    const { data: userAccount, error } = await supabase
-      .from('UserAccount')
-      .select(`
-        *,
-        AccountType(at_AccountType),
-        LoginInfo(li_Username)
-      `)
-      .eq('ua_Email', supabaseUser.email)
-      .limit(1);
-
-    if (error || !userAccount || userAccount.length === 0) {
-      console.error('Error fetching user data:', error);
-      return null;
-    }
-
-    const accountTypeMap: { [key: string]: 'buyer' | 'baker' | 'admin' } = {
-      'buyer': 'buyer',
-      'baker': 'baker', 
-      'admin': 'admin'
-    };
-
-    const user = userAccount[0];
-
-    return {
-      id: supabaseUser.id,
-      email: user.ua_Email,
-      name: user.ua_FullName,
-      username: user.LoginInfo?.[0]?.li_Username || '',
-      type: accountTypeMap[user.AccountType?.at_AccountType] || 'buyer',
-      location: user.ua_FullAddress,
-      zipCode: user.ua_ZipCode?.toString(),
-      id_ua: user.id_ua,
-      id_at: user.id_at,
-      profilePicture: `https://images.pexels.com/photos/771742/pexels-photo-771742.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&dpr=1`
-    };
-  } catch (error) {
-    console.error('Error in getUserFromDatabase:', error);
-    return null;
-  }
-}
-
 // Initialize auth when the store is created
 if (typeof window !== 'undefined') {
   useAuthStore.getState().initializeAuth();
 }
-
-// Listen for auth state changes
-supabase.auth.onAuthStateChange(async (event, session) => {
-  const { initializeAuth } = useAuthStore.getState();
-  
-  if (event === 'SIGNED_OUT') {
-    useAuthStore.setState({ user: null, isAuthenticated: false });
-  } else if (event === 'SIGNED_IN' && session?.user) {
-    await initializeAuth();
-  }
-});

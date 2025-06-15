@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { supabase } from '../lib/supabase';
 
 export interface CakeDesign {
   id: string;
@@ -21,15 +22,19 @@ export interface CakeDesign {
   updatedAt: Date;
   preview?: string; // Base64 encoded image for card display
   userId: string; // Add user isolation
+  // Database fields
+  id_cd?: number;
+  id_ua?: number;
 }
 
 interface CakeState {
   savedDesigns: CakeDesign[];
   currentDesign: CakeDesign | null;
-  saveDesign: (design: CakeDesign, userId: string) => void;
-  deleteDesign: (id: string, userId: string) => void;
+  saveDesign: (design: CakeDesign, userId: string) => Promise<void>;
+  deleteDesign: (id: string, userId: string) => Promise<void>;
   setCurrentDesign: (design: CakeDesign | null) => void;
   getUserDesigns: (userId: string) => CakeDesign[];
+  loadUserDesigns: (userId: string) => Promise<void>;
 }
 
 export const useCakeStore = create<CakeState>()(
@@ -37,9 +42,41 @@ export const useCakeStore = create<CakeState>()(
     (set, get) => ({
       savedDesigns: [],
       currentDesign: null,
-      saveDesign: (design: CakeDesign, userId: string) => {
+      
+      saveDesign: async (design: CakeDesign, userId: string) => {
         const { savedDesigns } = get();
         const designWithUser = { ...design, userId };
+        
+        try {
+          // Try to save to database if user has id_ua
+          const userIdMatch = userId.match(/^db-(\d+)$/);
+          if (userIdMatch) {
+            const id_ua = parseInt(userIdMatch[1]);
+            
+            // Save to database
+            const { data, error } = await supabase
+              .from('CakeDesign')
+              .upsert({
+                id_cd: design.id_cd || undefined,
+                cd_Name: design.name,
+                id_ua: id_ua,
+                cd_TextOnCake: design.topText || null,
+                created_by: id_ua,
+                updated_by: id_ua
+              })
+              .select()
+              .limit(1);
+
+            if (!error && data && data.length > 0) {
+              designWithUser.id_cd = data[0].id_cd;
+              designWithUser.id_ua = id_ua;
+            }
+          }
+        } catch (error) {
+          console.log('Database save failed, saving locally:', error);
+        }
+        
+        // Always save locally as well
         const existingIndex = savedDesigns.findIndex(d => d.id === design.id && d.userId === userId);
         
         if (existingIndex >= 0) {
@@ -54,15 +91,79 @@ export const useCakeStore = create<CakeState>()(
           });
         }
       },
-      deleteDesign: (id: string, userId: string) =>
+      
+      deleteDesign: async (id: string, userId: string) => {
+        const { savedDesigns } = get();
+        const design = savedDesigns.find(d => d.id === id && d.userId === userId);
+        
+        try {
+          // Try to delete from database if it has id_cd
+          if (design?.id_cd) {
+            await supabase
+              .from('CakeDesign')
+              .delete()
+              .eq('id_cd', design.id_cd);
+          }
+        } catch (error) {
+          console.log('Database delete failed:', error);
+        }
+        
+        // Always delete locally
         set((state) => ({
           savedDesigns: state.savedDesigns.filter((design) => !(design.id === id && design.userId === userId)),
-        })),
+        }));
+      },
+      
       setCurrentDesign: (design: CakeDesign | null) =>
         set({ currentDesign: design }),
+        
       getUserDesigns: (userId: string) => {
         const { savedDesigns } = get();
         return savedDesigns.filter(design => design.userId === userId);
+      },
+      
+      loadUserDesigns: async (userId: string) => {
+        try {
+          const userIdMatch = userId.match(/^db-(\d+)$/);
+          if (userIdMatch) {
+            const id_ua = parseInt(userIdMatch[1]);
+            
+            const { data, error } = await supabase
+              .from('CakeDesign')
+              .select('*')
+              .eq('id_ua', id_ua);
+
+            if (!error && data) {
+              // Convert database designs to local format
+              const dbDesigns: CakeDesign[] = data.map(dbDesign => ({
+                id: `db-${dbDesign.id_cd}`,
+                name: dbDesign.cd_Name,
+                shape: 'round' as const, // Default shape
+                layers: [
+                  { flavor: 'chocolate', color: '#8B4513', topDesign: 'none', frosting: 'american buttercream', frostingColor: '#FFFFFF' }
+                ], // Default layer
+                buttercream: { flavor: 'vanilla', color: '#FFFFFF' },
+                toppings: [],
+                topText: dbDesign.cd_TextOnCake || '',
+                updatedAt: new Date(dbDesign.updated_at || dbDesign.created_at),
+                userId: userId,
+                id_cd: dbDesign.id_cd,
+                id_ua: dbDesign.id_ua
+              }));
+
+              // Merge with existing local designs
+              const { savedDesigns } = get();
+              const localDesigns = savedDesigns.filter(d => d.userId === userId && !d.id_cd);
+              const allDesigns = [...localDesigns, ...dbDesigns];
+              
+              set({ 
+                savedDesigns: savedDesigns.filter(d => d.userId !== userId).concat(allDesigns)
+              });
+            }
+          }
+        } catch (error) {
+          console.log('Failed to load designs from database:', error);
+        }
       },
     }),
     {

@@ -1,27 +1,73 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useCakeStore } from '../../store/cakeStore';
 import { useAuthStore } from '../../store/authStore';
-import { Save, Plus, X, Palette, Layers, Cookie, Square, Circle, ChevronDown, ChevronUp, Droplets, Sparkles, Crown, Wand2, Type } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+import { Save, Plus, X, Palette, Layers, Cookie, Square, Circle, ChevronDown, ChevronUp, Droplets, Sparkles, Crown, Wand2, Type, Loader2 } from 'lucide-react';
+
+// Database option interfaces
+interface CakeFlavor {
+  id: string;
+  name: string;
+  color: string;
+}
+
+interface FrostingType {
+  id: string;
+  name: string;
+  defaultColor: string;
+  hasCustomColor: boolean;
+}
+
+interface ToppingType {
+  id: string;
+  name: string;
+  icon: string;
+}
+
+interface TierDecoration {
+  id: string;
+  name: string;
+  value: string;
+  description: string;
+  icon: any;
+}
 
 export const CakePlayground: React.FC = () => {
-  const { currentDesign, setCurrentDesign, saveDesign, getUserDesigns } = useCakeStore();
+  const { currentDesign, setCurrentDesign, saveDesign, getUserDesigns, loadUserDesigns } = useCakeStore();
   const { user } = useAuthStore();
+  
+  // Loading states
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  
+  // Database options
+  const [cakeFlavors, setCakeFlavors] = useState<CakeFlavor[]>([]);
+  const [frostingTypes, setFrostingTypes] = useState<FrostingType[]>([]);
+  const [toppingTypes, setToppingTypes] = useState<ToppingType[]>([]);
   
   // Get user's saved designs for unique name generation
   const savedDesigns = user ? getUserDesigns(user.id) : [];
   
-  // Collapsible sections state - only collapse when user manually collapses
+  // Collapsible sections state
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [collapsedTiers, setCollapsedTiers] = useState<Record<number, boolean>>({});
   const [showColorPicker, setShowColorPicker] = useState<Record<number, boolean>>({});
   const colorPickerRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  
+  // Tier decoration options (static for now, could be moved to database)
+  const tierDecorationOptions: TierDecoration[] = [
+    { id: '1', name: 'None', value: 'none', icon: Circle, description: 'Plain top' },
+    { id: '2', name: 'Ganache Drips', value: 'drip', icon: Droplets, description: 'Chocolate or caramel drips' },
+    { id: '3', name: 'Fresh Berries', value: 'berries', icon: Sparkles, description: 'Fresh strawberries or mixed berries' },
+    { id: '4', name: 'Buttercream Flowers', value: 'flowers', icon: Crown, description: 'Decorative buttercream flowers' },
+    { id: '5', name: 'Creative Liberty', value: 'creative', icon: Wand2, description: 'Let the baker surprise you' }
+  ];
   
   // Generate unique cake name
   const generateUniqueName = () => {
     const baseName = 'Custom Cake';
     const existingNames = savedDesigns.map(d => d.name);
     
-    // Start with 'Custom Cake 1' as the first default name
     let counter = 1;
     while (existingNames.includes(`${baseName} ${counter}`)) {
       counter++;
@@ -30,7 +76,7 @@ export const CakePlayground: React.FC = () => {
     return `${baseName} ${counter}`;
   };
   
-  // Initialize with default design with only 1 tier
+  // Initialize with default design
   const [design, setDesign] = useState(() => {
     if (currentDesign) {
       return currentDesign;
@@ -50,12 +96,75 @@ export const CakePlayground: React.FC = () => {
     };
   });
 
+  // Load database options and user designs
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true);
+      
+      try {
+        // Load default options (fallback if database fails)
+        const defaultCakeFlavors: CakeFlavor[] = [
+          { id: '1', name: 'Vanilla', color: '#FFF8DC' },
+          { id: '2', name: 'Chocolate', color: '#8B4513' },
+          { id: '3', name: 'Strawberry', color: '#FFB6C1' },
+          { id: '4', name: 'Lemon', color: '#FFFACD' },
+          { id: '5', name: 'Red Velvet', color: '#DC143C' },
+          { id: '6', name: 'Carrot', color: '#FF8C00' }
+        ];
+
+        const defaultFrostingTypes: FrostingType[] = [
+          { id: '1', name: 'American Buttercream', defaultColor: '#FFFFFF', hasCustomColor: true },
+          { id: '2', name: 'Italian Buttercream', defaultColor: '#FFFEF7', hasCustomColor: true },
+          { id: '3', name: 'French Buttercream', defaultColor: '#FFF8DC', hasCustomColor: true },
+          { id: '4', name: 'Whipped Cream', defaultColor: '#FFFAFA', hasCustomColor: true },
+          { id: '5', name: 'Ganache', defaultColor: '#654321', hasCustomColor: false },
+          { id: '6', name: 'Cream Cheese Frosting', defaultColor: '#F5F5DC', hasCustomColor: true },
+          { id: '7', name: 'Swiss Meringue', defaultColor: '#FFFEF7', hasCustomColor: true }
+        ];
+
+        const defaultToppingTypes: ToppingType[] = [
+          { id: '1', name: 'Fresh Berries', icon: '🍓' },
+          { id: '2', name: 'Chocolate Chips', icon: '🍫' },
+          { id: '3', name: 'Sprinkles', icon: '✨' },
+          { id: '4', name: 'Edible Flowers', icon: '🌸' },
+          { id: '5', name: 'Chocolate Drizzle', icon: '🍯' },
+          { id: '6', name: 'Caramel Sauce', icon: '🍮' },
+          { id: '7', name: 'Chopped Nuts', icon: '🥜' },
+          { id: '8', name: 'Candy Pieces', icon: '🍬' }
+        ];
+
+        // Set default options
+        setCakeFlavors(defaultCakeFlavors);
+        setFrostingTypes(defaultFrostingTypes);
+        setToppingTypes(defaultToppingTypes);
+
+        // Load user designs if user is logged in
+        if (user) {
+          await loadUserDesigns(user.id);
+        }
+
+        // TODO: In future, load options from database tables
+        // Example queries:
+        // const { data: flavors } = await supabase.from('cake_flavors').select('*');
+        // const { data: frostings } = await supabase.from('frosting_types').select('*');
+        // const { data: toppings } = await supabase.from('topping_types').select('*');
+        
+      } catch (error) {
+        console.error('Error loading data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, [user, loadUserDesigns]);
+
   // Update local state when design changes from external sources
   useEffect(() => {
     if (currentDesign) {
       setDesign(currentDesign);
-    } else {
-      // If no current design, create a new one with unique name
+    } else if (!loading) {
+      // If no current design and not loading, create a new one with unique name
       const newDesign = {
         id: Date.now().toString(),
         name: generateUniqueName(),
@@ -72,7 +181,7 @@ export const CakePlayground: React.FC = () => {
       setDesign(newDesign);
       setCurrentDesign(newDesign);
     }
-  }, [currentDesign, savedDesigns.length, setCurrentDesign, user?.id]);
+  }, [currentDesign, loading, savedDesigns.length, setCurrentDesign, user?.id]);
 
   // Close color picker when clicking outside
   useEffect(() => {
@@ -96,57 +205,9 @@ export const CakePlayground: React.FC = () => {
     };
   }, [showColorPicker]);
 
-  const flavorOptions = [
-    { name: 'Vanilla', color: '#FFF8DC' },
-    { name: 'Chocolate', color: '#8B4513' },
-    { name: 'Strawberry', color: '#FFB6C1' },
-    { name: 'Lemon', color: '#FFFACD' },
-    { name: 'Red Velvet', color: '#DC143C' },
-    { name: 'Carrot', color: '#FF8C00' }
-  ];
-
-  const buttercreamOptions = [
-    { name: 'Vanilla', color: '#FFFFFF' },
-    { name: 'Chocolate', color: '#D2691E' },
-    { name: 'Strawberry', color: '#FFB6C1' },
-    { name: 'Lemon', color: '#FFFACD' },
-    { name: 'Mint', color: '#98FB98' },
-    { name: 'Coffee', color: '#8B4513' },
-    { name: 'Peanut Butter', color: '#DEB887' }
-  ];
-
-  const frostingOptions = [
-    { name: 'American Buttercream', color: '#FFFFFF', hasColor: true },
-    { name: 'Italian Buttercream', color: '#FFFEF7', hasColor: true },
-    { name: 'French Buttercream', color: '#FFF8DC', hasColor: true },
-    { name: 'Whipped Cream', color: '#FFFAFA', hasColor: true },
-    { name: 'Ganache', color: '#654321', hasColor: false },
-    { name: 'Cream Cheese Frosting', color: '#F5F5DC', hasColor: true },
-    { name: 'Swiss Meringue', color: '#FFFEF7', hasColor: true }
-  ];
-
   const shapeOptions = [
     { name: 'Round', value: 'round', icon: Circle },
     { name: 'Square', value: 'square', icon: Square }
-  ];
-
-  const tierDecorationOptions = [
-    { name: 'None', value: 'none', icon: Circle, description: 'Plain top' },
-    { name: 'Ganache Drips', value: 'drip', icon: Droplets, description: 'Chocolate or caramel drips' },
-    { name: 'Fresh Berries', value: 'berries', icon: Sparkles, description: 'Fresh strawberries or mixed berries' },
-    { name: 'Buttercream Flowers', value: 'flowers', icon: Crown, description: 'Decorative buttercream flowers' },
-    { name: 'Creative Liberty', value: 'creative', icon: Wand2, description: 'Let the baker surprise you' }
-  ];
-
-  const toppingOptions = [
-    { name: 'Fresh Berries', icon: '🍓' },
-    { name: 'Chocolate Chips', icon: '🍫' },
-    { name: 'Sprinkles', icon: '✨' },
-    { name: 'Edible Flowers', icon: '🌸' },
-    { name: 'Chocolate Drizzle', icon: '🍯' },
-    { name: 'Caramel Sauce', icon: '🍮' },
-    { name: 'Chopped Nuts', icon: '🥜' },
-    { name: 'Candy Pieces', icon: '🍬' }
   ];
 
   const toggleSection = (sectionId: string) => {
@@ -189,12 +250,12 @@ export const CakePlayground: React.FC = () => {
     });
     setCollapsedTiers(newCollapsedTiers);
     
-    // Copy settings from the previous tier (last tier in array)
+    // Copy settings from the previous tier
     const previousTier = design.layers[design.layers.length - 1];
     const newTier = {
       flavor: previousTier.flavor,
       color: previousTier.color,
-      topDesign: 'none', // Reset top design for new tier
+      topDesign: 'none',
       frosting: previousTier.frosting,
       frostingColor: previousTier.frostingColor
     };
@@ -241,7 +302,7 @@ export const CakePlayground: React.FC = () => {
   };
 
   const getToppingIcon = (toppingName: string) => {
-    const topping = toppingOptions.find(t => t.name === toppingName);
+    const topping = toppingTypes.find(t => t.name === toppingName);
     return topping ? topping.icon : '🎂';
   };
 
@@ -257,8 +318,7 @@ export const CakePlayground: React.FC = () => {
   };
 
   const getFrostingColor = (tier: any) => {
-    // Use the custom color if set, or the default frosting color
-    return tier.frostingColor || frostingOptions.find(f => f.name.toLowerCase() === (tier.frosting || 'american buttercream').toLowerCase())?.color || '#FFFFFF';
+    return tier.frostingColor || frostingTypes.find(f => f.name.toLowerCase() === (tier.frosting || 'american buttercream').toLowerCase())?.defaultColor || '#FFFFFF';
   };
 
   const getDecorationElement = (topDesign: string, tierIndex: number, isTopTier: boolean) => {
@@ -308,7 +368,7 @@ export const CakePlayground: React.FC = () => {
   const generateCakePreview = () => {
     const canvas = document.createElement('canvas');
     canvas.width = 300;
-    canvas.height = 225; // 4:3 aspect ratio
+    canvas.height = 225;
     const ctx = canvas.getContext('2d');
     
     if (!ctx) return '';
@@ -357,69 +417,55 @@ export const CakePlayground: React.FC = () => {
         ctx.roundRect(centerX - layerWidth / 2, y - layerHeight / 2, layerWidth, layerHeight, radius);
         ctx.stroke();
       }
-      
-      // Frosting lines
-      ctx.strokeStyle = frostingColor;
-      ctx.lineWidth = 3;
-      const lineWidth = layerWidth * 0.7;
-      const lineSpacing = layerHeight / 4;
-      
-      for (let i = 1; i <= 3; i++) {
-        const lineY = y - layerHeight / 2 + (i * lineSpacing);
-        ctx.beginPath();
-        ctx.moveTo(centerX - lineWidth / 2, lineY);
-        ctx.lineTo(centerX + lineWidth / 2, lineY);
-        ctx.stroke();
-      }
     });
-    
-    // Add toppings indicator
-    if (design.toppings.length > 0) {
-      ctx.fillStyle = '#fbbf24';
-      ctx.font = '12px Arial';
-      ctx.textAlign = 'right';
-      ctx.fillText(`${design.toppings.length} toppings`, 290, 30);
-    }
     
     return canvas.toDataURL('image/png', 0.8);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!user) {
       alert('Please log in to save designs');
       return;
     }
 
-    const designToSave = {
-      ...design,
-      id: design.id || Date.now().toString(),
-      preview: generateCakePreview(),
-      userId: user.id
-    };
+    setSaving(true);
     
-    saveDesign(designToSave, user.id);
-    
-    // Clear current design to refresh playground
-    setCurrentDesign(null);
-    
-    // Show success message
-    const successDiv = document.createElement('div');
-    successDiv.className = 'fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 flex items-center space-x-2';
-    successDiv.innerHTML = `
-      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-      </svg>
-      <span>Cake design saved successfully!</span>
-    `;
-    
-    document.body.appendChild(successDiv);
-    
-    // Remove after 3 seconds
-    setTimeout(() => {
-      if (document.body.contains(successDiv)) {
-        document.body.removeChild(successDiv);
-      }
-    }, 3000);
+    try {
+      const designToSave = {
+        ...design,
+        id: design.id || Date.now().toString(),
+        preview: generateCakePreview(),
+        userId: user.id
+      };
+      
+      await saveDesign(designToSave, user.id);
+      
+      // Clear current design to refresh playground
+      setCurrentDesign(null);
+      
+      // Show success message
+      const successDiv = document.createElement('div');
+      successDiv.className = 'fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 flex items-center space-x-2';
+      successDiv.innerHTML = `
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+        </svg>
+        <span>Cake design saved successfully!</span>
+      `;
+      
+      document.body.appendChild(successDiv);
+      
+      setTimeout(() => {
+        if (document.body.contains(successDiv)) {
+          document.body.removeChild(successDiv);
+        }
+      }, 3000);
+    } catch (error) {
+      console.error('Error saving design:', error);
+      alert('Failed to save design. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const CollapsibleSection = ({ 
@@ -463,6 +509,19 @@ export const CakePlayground: React.FC = () => {
     );
   };
 
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-primary-600 mx-auto mb-4" />
+            <p className="text-gray-600">Loading cake playground...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
@@ -473,19 +532,24 @@ export const CakePlayground: React.FC = () => {
           </div>
           <button
             onClick={handleSave}
-            className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+            disabled={saving}
+            className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Save className="h-4 w-4" />
-            <span>Save Design</span>
+            {saving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            <span>{saving ? 'Saving...' : 'Save Design'}</span>
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Cake Preview - Smaller main box */}
+        {/* Cake Preview */}
         <div className="lg:col-span-2">
           <div className="bg-white rounded-xl shadow-lg p-6">
-            {/* Editable Cake Name with clear label */}
+            {/* Editable Cake Name */}
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">Design Name:</label>
               <input
@@ -497,12 +561,11 @@ export const CakePlayground: React.FC = () => {
               />
             </div>
             
-            {/* Cake Visualization - Bigger shapes, no overlapping */}
+            {/* Cake Visualization */}
             <div className="w-full h-80 bg-gradient-to-b from-blue-50 to-blue-100 rounded-lg border border-gray-200 flex items-center justify-center relative overflow-hidden">
-              {/* Cake Tiers - Bigger and more beautiful, no overlapping */}
+              {/* Cake Tiers */}
               <div className="relative flex flex-col-reverse items-center">
                 {design.layers.map((tier, index) => {
-                  // Increased base diameter for bigger, more beautiful shapes
                   const baseDiameter = design.shape === 'round' ? 80 : 75;
                   const diameter = (design.layers.length - index + 1) * baseDiameter;
                   const height = 70;
@@ -518,21 +581,21 @@ export const CakePlayground: React.FC = () => {
                         height: `${height}px`,
                         backgroundColor: tier.color,
                         zIndex: design.layers.length - index,
-                        border: `4px solid ${frostingColor}`, // Thicker border for better visibility
-                        marginTop: index > 0 ? '0px' : '0', // No overlap - tiers touch exactly
+                        border: `4px solid ${frostingColor}`,
+                        marginTop: index > 0 ? '0px' : '0',
                         ...getShapeStyle(design.shape),
                       }}
                     >
-                      {/* Enhanced frosting lines with better spacing */}
+                      {/* Frosting lines */}
                       <div className="absolute inset-0 flex flex-col justify-center">
                         <div className="flex flex-col justify-between h-full py-4">
                           {[1, 2, 3].map((lineIndex) => (
                             <div 
                               key={lineIndex}
-                              className="h-1" // Thicker lines
+                              className="h-1"
                               style={{ 
                                 backgroundColor: frostingColor,
-                                width: '75%', // Slightly wider
+                                width: '75%',
                                 margin: '0 auto',
                                 borderRadius: design.shape === 'round' ? '50px' : '3px',
                                 opacity: 0.9
@@ -599,7 +662,7 @@ export const CakePlayground: React.FC = () => {
                 <h4 className="font-medium text-gray-900 text-sm">Tier Details:</h4>
                 {design.layers.map((tier, index) => {
                   const isTopTier = index === design.layers.length - 1;
-                  const frostingOption = frostingOptions.find(f => f.name.toLowerCase() === (tier.frosting || 'american buttercream').toLowerCase());
+                  const frostingOption = frostingTypes.find(f => f.name.toLowerCase() === (tier.frosting || 'american buttercream').toLowerCase());
                   const frostingColor = getFrostingColor(tier);
                   
                   return (
@@ -693,7 +756,7 @@ export const CakePlayground: React.FC = () => {
             </div>
           </CollapsibleSection>
 
-          {/* Tiers - Limited to 3 */}
+          {/* Tiers */}
           <CollapsibleSection id="tiers" title="Tiers" icon={Layers} defaultOpen={true}>
             <div className="flex items-center justify-between mb-4">
               <button
@@ -714,8 +777,8 @@ export const CakePlayground: React.FC = () => {
               {design.layers.map((tier, index) => {
                 const isTierCollapsed = collapsedTiers[index] ?? false;
                 const isTopTier = index === design.layers.length - 1;
-                const frostingOption = frostingOptions.find(f => f.name.toLowerCase() === (tier.frosting || 'american buttercream').toLowerCase());
-                const canCustomizeColor = frostingOption?.hasColor ?? true;
+                const frostingOption = frostingTypes.find(f => f.name.toLowerCase() === (tier.frosting || 'american buttercream').toLowerCase());
+                const canCustomizeColor = frostingOption?.hasCustomColor ?? true;
                 
                 return (
                   <div key={index} className="border border-gray-200 rounded-lg overflow-hidden">
@@ -761,9 +824,9 @@ export const CakePlayground: React.FC = () => {
                         <div className="mb-4">
                           <label className="block text-xs font-medium text-gray-700 mb-2">Cake Flavor</label>
                           <div className="grid grid-cols-2 gap-2">
-                            {flavorOptions.map(flavor => (
+                            {cakeFlavors.map(flavor => (
                               <button
-                                key={flavor.name}
+                                key={flavor.id}
                                 onClick={() => updateTier(index, { flavor: flavor.name.toLowerCase(), color: flavor.color })}
                                 className={`p-2 rounded-lg border-2 transition-all text-xs ${
                                   tier.flavor === flavor.name.toLowerCase()
@@ -819,7 +882,7 @@ export const CakePlayground: React.FC = () => {
                                     key={color}
                                     onClick={() => updateTier(index, { frostingColor: color })}
                                     className={`w-6 h-6 rounded-full border-2 transition-all hover:scale-110 ${
-                                      (tier.frostingColor || frostingOption?.color) === color 
+                                      (tier.frostingColor || frostingOption?.defaultColor) === color 
                                         ? 'border-gray-800 shadow-md' 
                                         : 'border-gray-300 hover:border-gray-500'
                                     }`}
@@ -834,7 +897,7 @@ export const CakePlayground: React.FC = () => {
                                 <label className="block text-xs text-gray-600">Or choose custom color:</label>
                                 <input
                                   type="color"
-                                  value={tier.frostingColor || frostingOption?.color || '#FFFFFF'}
+                                  value={tier.frostingColor || frostingOption?.defaultColor || '#FFFFFF'}
                                   onChange={(e) => updateTier(index, { frostingColor: e.target.value })}
                                   className="w-full h-8 rounded border border-gray-300"
                                 />
@@ -847,14 +910,14 @@ export const CakePlayground: React.FC = () => {
                           )}
                           
                           <div className="grid grid-cols-1 gap-2">
-                            {frostingOptions.map(frosting => (
+                            {frostingTypes.map(frosting => (
                               <button
-                                key={frosting.name}
+                                key={frosting.id}
                                 onClick={() => {
                                   const updates: any = { frosting: frosting.name.toLowerCase() };
                                   // Reset custom color when changing frosting type
-                                  if (frosting.hasColor) {
-                                    updates.frostingColor = frosting.color;
+                                  if (frosting.hasCustomColor) {
+                                    updates.frostingColor = frosting.defaultColor;
                                   } else {
                                     updates.frostingColor = undefined;
                                   }
@@ -869,10 +932,10 @@ export const CakePlayground: React.FC = () => {
                                 <div className="flex items-center space-x-2">
                                   <div 
                                     className="w-4 h-4 rounded-full"
-                                    style={{ backgroundColor: frosting.color }}
+                                    style={{ backgroundColor: frosting.defaultColor }}
                                   />
                                   <span>{frosting.name}</span>
-                                  {!frosting.hasColor && (
+                                  {!frosting.hasCustomColor && (
                                     <span className="text-xs text-gray-500">(fixed color)</span>
                                   )}
                                 </div>
@@ -885,23 +948,23 @@ export const CakePlayground: React.FC = () => {
                         <div className="mb-4">
                           <label className="block text-xs font-medium text-gray-700 mb-2">Frosting Flavor</label>
                           <div className="grid grid-cols-2 gap-2">
-                            {buttercreamOptions.map(buttercream => (
+                            {cakeFlavors.map(flavor => (
                               <button
-                                key={buttercream.name}
+                                key={flavor.id}
                                 onClick={() => updateDesign({ 
-                                  buttercream: { flavor: buttercream.name.toLowerCase(), color: buttercream.color }
+                                  buttercream: { flavor: flavor.name.toLowerCase(), color: flavor.color }
                                 })}
                                 className={`p-2 rounded-lg border-2 transition-all text-xs ${
-                                  design.buttercream.flavor === buttercream.name.toLowerCase()
+                                  design.buttercream.flavor === flavor.name.toLowerCase()
                                     ? 'border-secondary-500 bg-secondary-50'
                                     : 'border-gray-200 hover:border-gray-300'
                                 }`}
                               >
                                 <div 
                                   className="w-4 h-4 rounded-full mx-auto mb-1"
-                                  style={{ backgroundColor: buttercream.color }}
+                                  style={{ backgroundColor: flavor.color }}
                                 />
-                                {buttercream.name}
+                                {flavor.name}
                               </button>
                             ))}
                           </div>
@@ -916,7 +979,7 @@ export const CakePlayground: React.FC = () => {
                                 const IconComponent = decoration.icon;
                                 return (
                                   <button
-                                    key={decoration.value}
+                                    key={decoration.id}
                                     onClick={() => updateTier(index, { topDesign: decoration.value })}
                                     className={`p-2 rounded-lg border-2 transition-all text-xs text-left ${
                                       (tier.topDesign || 'none') === decoration.value
@@ -956,13 +1019,13 @@ export const CakePlayground: React.FC = () => {
             )}
             
             <div className="grid grid-cols-1 gap-2">
-              {toppingOptions.map(topping => {
+              {toppingTypes.map(topping => {
                 const isSelected = design.toppings.includes(topping.name);
                 const isDisabled = !isSelected && design.toppings.length >= 2;
                 
                 return (
                   <button
-                    key={topping.name}
+                    key={topping.id}
                     onClick={() => toggleTopping(topping.name)}
                     disabled={isDisabled}
                     className={`p-2 text-sm rounded-lg border transition-all text-left flex items-center space-x-2 ${
@@ -981,7 +1044,7 @@ export const CakePlayground: React.FC = () => {
             </div>
           </CollapsibleSection>
 
-          {/* Text on Cake - Moved outside collapsible section */}
+          {/* Text on Cake */}
           <div className="bg-white rounded-lg shadow-lg p-6">
             <h3 className="text-lg font-semibold text-gray-900 flex items-center mb-4">
               <Type className="h-5 w-5 mr-2" />

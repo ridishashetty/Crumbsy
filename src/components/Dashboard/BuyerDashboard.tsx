@@ -1,16 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCakeStore } from '../../store/cakeStore';
 import { useOrderStore } from '../../store/orderStore';
 import { useAuthStore } from '../../store/authStore';
 import { BakerProfileModal } from '../Profile/BakerProfileModal';
-import { Trash2, ShoppingCart, Cake, Plus, X, Calendar, MapPin, XCircle, Clock, CheckCircle, MessageSquare, DollarSign, User } from 'lucide-react';
+import { Trash2, ShoppingCart, Cake, Plus, X, Calendar, MapPin, XCircle, Clock, CheckCircle, MessageSquare, DollarSign, User, Loader2 } from 'lucide-react';
 
 export const BuyerDashboard: React.FC = () => {
-  const { getUserDesigns, deleteDesign, setCurrentDesign } = useCakeStore();
+  const { getUserDesigns, deleteDesign, setCurrentDesign, loadUserDesigns } = useCakeStore();
   const { createOrder, getBuyerOrders, cancelOrder, assignBaker, addMessage, canCancelOrder } = useOrderStore();
   const { user, getAllUsers } = useAuthStore();
   const navigate = useNavigate();
+  
+  // Loading state
+  const [loading, setLoading] = useState(true);
   
   // Get designs and orders for current user only
   const savedDesigns = user ? getUserDesigns(user.id) : [];
@@ -27,6 +30,26 @@ export const BuyerDashboard: React.FC = () => {
     deliveryTime: ''
   });
   const [orderError, setOrderError] = useState('');
+
+  // Load user designs on component mount
+  useEffect(() => {
+    const loadData = async () => {
+      if (user) {
+        setLoading(true);
+        try {
+          await loadUserDesigns(user.id);
+        } catch (error) {
+          console.error('Error loading user designs:', error);
+        } finally {
+          setLoading(false);
+        }
+      } else {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, [user, loadUserDesigns]);
 
   const handleEditCake = (design: any) => {
     setCurrentDesign(design);
@@ -222,6 +245,19 @@ export const BuyerDashboard: React.FC = () => {
     );
   };
 
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-primary-600 mx-auto mb-4" />
+            <p className="text-gray-600">Loading your designs...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
@@ -389,7 +425,7 @@ export const BuyerDashboard: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Cake Preview Image - Same as playground */}
+                  {/* Cake Preview Image */}
                   <div className="aspect-[4/3] bg-gradient-to-b from-blue-50 to-blue-100 relative overflow-hidden flex items-center justify-center p-4">
                     {design.preview ? (
                       <img 
@@ -398,7 +434,7 @@ export const BuyerDashboard: React.FC = () => {
                         className="w-full h-full object-cover"
                       />
                     ) : (
-                      // Exact same visualization as playground - no overlapping
+                      // Cake visualization
                       <div className="relative flex flex-col-reverse items-center">
                         {design.layers?.map((tier, index) => {
                           const baseDiameter = design.shape === 'round' ? 50 : 45;
@@ -417,7 +453,7 @@ export const BuyerDashboard: React.FC = () => {
                                 backgroundColor: tier.color,
                                 zIndex: design.layers.length - index,
                                 border: `3px solid ${frostingColor}`,
-                                marginTop: '0px', // Fixed: No overlap - tiers touch exactly
+                                marginTop: '0px',
                                 ...getShapeStyle(design.shape),
                               }}
                             >

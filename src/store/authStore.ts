@@ -91,14 +91,14 @@ export const useAuthStore = create<AuthState>()(
               `)
               .eq('li_Username', identifier)
               .eq('li_Password', password)
-              .single();
+              .limit(1);
 
-            if (loginError || !loginData) {
+            if (loginError || !loginData || loginData.length === 0) {
               set({ loading: false });
               return { success: false, error: 'Invalid credentials' };
             }
 
-            email = loginData.UserAccount.ua_Email;
+            email = loginData[0].UserAccount.ua_Email;
           } else {
             // Verify email/password combination
             const { data: loginData, error: loginError } = await supabase
@@ -108,9 +108,9 @@ export const useAuthStore = create<AuthState>()(
               `)
               .eq('UserAccount.ua_Email', email)
               .eq('li_Password', password)
-              .single();
+              .limit(1);
 
-            if (loginError || !loginData) {
+            if (loginError || !loginData || loginData.length === 0) {
               set({ loading: false });
               return { success: false, error: 'Invalid credentials' };
             }
@@ -174,9 +174,9 @@ export const useAuthStore = create<AuthState>()(
             .from('UserAccount')
             .select('ua_Email')
             .eq('ua_Email', userData.email)
-            .single();
+            .limit(1);
 
-          if (existingUser) {
+          if (existingUser && existingUser.length > 0) {
             set({ loading: false });
             return { success: false, error: 'An account with this email already exists' };
           }
@@ -186,9 +186,9 @@ export const useAuthStore = create<AuthState>()(
             .from('LoginInfo')
             .select('li_Username')
             .eq('li_Username', userData.username)
-            .single();
+            .limit(1);
 
-          if (existingUsername) {
+          if (existingUsername && existingUsername.length > 0) {
             set({ loading: false });
             return { success: false, error: 'This username is already taken' };
           }
@@ -225,9 +225,9 @@ export const useAuthStore = create<AuthState>()(
               created_by: null
             })
             .select()
-            .single();
+            .limit(1);
 
-          if (userAccountError || !userAccountData) {
+          if (userAccountError || !userAccountData || userAccountData.length === 0) {
             set({ loading: false });
             return { success: false, error: 'Failed to create user account' };
           }
@@ -236,10 +236,10 @@ export const useAuthStore = create<AuthState>()(
           const { error: loginInfoError } = await supabase
             .from('LoginInfo')
             .insert({
-              id_ua: userAccountData.id_ua,
+              id_ua: userAccountData[0].id_ua,
               li_Username: userData.username,
               li_Password: userData.password,
-              created_by: userAccountData.id_ua
+              created_by: userAccountData[0].id_ua
             });
 
           if (loginInfoError) {
@@ -258,7 +258,7 @@ export const useAuthStore = create<AuthState>()(
             location: userData.location,
             zipCode: userData.zipCode,
             cancelationDays: userData.cancelationDays,
-            id_ua: userAccountData.id_ua,
+            id_ua: userAccountData[0].id_ua,
             id_at: accountTypeId
           };
 
@@ -335,9 +335,9 @@ async function getUserFromDatabase(supabaseUser: SupabaseUser): Promise<User | n
         LoginInfo(li_Username)
       `)
       .eq('ua_Email', supabaseUser.email)
-      .single();
+      .limit(1);
 
-    if (error || !userAccount) {
+    if (error || !userAccount || userAccount.length === 0) {
       console.error('Error fetching user data:', error);
       return null;
     }
@@ -348,16 +348,18 @@ async function getUserFromDatabase(supabaseUser: SupabaseUser): Promise<User | n
       'admin': 'admin'
     };
 
+    const user = userAccount[0];
+
     return {
       id: supabaseUser.id,
-      email: userAccount.ua_Email,
-      name: userAccount.ua_FullName,
-      username: userAccount.LoginInfo?.[0]?.li_Username || '',
-      type: accountTypeMap[userAccount.AccountType?.at_AccountType] || 'buyer',
-      location: userAccount.ua_FullAddress,
-      zipCode: userAccount.ua_ZipCode?.toString(),
-      id_ua: userAccount.id_ua,
-      id_at: userAccount.id_at,
+      email: user.ua_Email,
+      name: user.ua_FullName,
+      username: user.LoginInfo?.[0]?.li_Username || '',
+      type: accountTypeMap[user.AccountType?.at_AccountType] || 'buyer',
+      location: user.ua_FullAddress,
+      zipCode: user.ua_ZipCode?.toString(),
+      id_ua: user.id_ua,
+      id_at: user.id_at,
       profilePicture: `https://images.pexels.com/photos/771742/pexels-photo-771742.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&dpr=1`
     };
   } catch (error) {

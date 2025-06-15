@@ -65,10 +65,10 @@ export const useCakeStore = create<CakeState>()(
                 updated_by: id_ua
               })
               .select()
-              .limit(1);
+              .single();
 
-            if (!error && data && data.length > 0) {
-              designWithUser.id_cd = data[0].id_cd;
+            if (!error && data) {
+              designWithUser.id_cd = data.id_cd;
               designWithUser.id_ua = id_ua;
             }
           }

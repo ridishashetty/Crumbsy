@@ -17,6 +17,7 @@ export interface User {
   // Database IDs
   id_ua?: number;
   id_at?: number;
+  password?: string; // Keep for local fallback
 }
 
 interface AuthState {
@@ -78,54 +79,51 @@ export const useAuthStore = create<AuthState>()(
 
           // Try database login first
           try {
-            let email = identifier;
             let userData = null;
             
-            // If it doesn't contain @, it's a username - look up email
-            if (!identifier.includes('@')) {
-              const { data: loginData, error: loginError } = await supabase
-                .from('LoginInfo')
-                .select(`
-                  li_Username,
-                  li_Password,
-                  UserAccount!inner(
-                    id_ua,
-                    ua_Email,
-                    ua_FullName,
-                    ua_ZipCode,
-                    ua_FullAddress,
-                    id_at,
-                    AccountType(at_AccountType)
-                  )
-                `)
-                .eq('li_Username', identifier)
-                .eq('li_Password', password)
-                .limit(1);
+            // Try username login first
+            const { data: loginData, error: loginError } = await supabase
+              .from('LoginInfo')
+              .select(`
+                li_Username,
+                li_Password,
+                UserAccount!inner(
+                  id_ua,
+                  ua_Email,
+                  ua_FullName,
+                  ua_ZipCode,
+                  ua_FullAddress,
+                  id_at,
+                  AccountType(at_AccountType)
+                )
+              `)
+              .eq('li_Username', identifier)
+              .eq('li_Password', password)
+              .single();
 
-              if (!loginError && loginData && loginData.length > 0) {
-                const dbUser = loginData[0];
-                const accountTypeMap: { [key: string]: 'buyer' | 'baker' | 'admin' } = {
-                  'buyer': 'buyer',
-                  'baker': 'baker', 
-                  'admin': 'admin'
-                };
+            if (!loginError && loginData) {
+              const dbUser = loginData;
+              const accountTypeMap: { [key: string]: 'buyer' | 'baker' | 'admin' } = {
+                'buyer': 'buyer',
+                'baker': 'baker', 
+                'admin': 'admin'
+              };
 
-                userData = {
-                  id: `db-${dbUser.UserAccount.id_ua}`,
-                  email: dbUser.UserAccount.ua_Email,
-                  name: dbUser.UserAccount.ua_FullName,
-                  username: dbUser.li_Username,
-                  type: accountTypeMap[dbUser.UserAccount.AccountType?.at_AccountType] || 'buyer',
-                  location: dbUser.UserAccount.ua_FullAddress,
-                  zipCode: dbUser.UserAccount.ua_ZipCode?.toString(),
-                  id_ua: dbUser.UserAccount.id_ua,
-                  id_at: dbUser.UserAccount.id_at,
-                  profilePicture: `https://images.pexels.com/photos/771742/pexels-photo-771742.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&dpr=1`
-                };
-              }
+              userData = {
+                id: `db-${dbUser.UserAccount.id_ua}`,
+                email: dbUser.UserAccount.ua_Email || '',
+                name: dbUser.UserAccount.ua_FullName || '',
+                username: dbUser.li_Username || '',
+                type: accountTypeMap[dbUser.UserAccount.AccountType?.at_AccountType] || 'buyer',
+                location: dbUser.UserAccount.ua_FullAddress || '',
+                zipCode: dbUser.UserAccount.ua_ZipCode?.toString() || '',
+                id_ua: dbUser.UserAccount.id_ua,
+                id_at: dbUser.UserAccount.id_at,
+                profilePicture: `https://images.pexels.com/photos/771742/pexels-photo-771742.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&dpr=1`
+              };
             } else {
-              // Email login
-              const { data: loginData, error: loginError } = await supabase
+              // Try email login if username failed
+              const { data: emailLoginData, error: emailLoginError } = await supabase
                 .from('LoginInfo')
                 .select(`
                   li_Username,
@@ -140,12 +138,12 @@ export const useAuthStore = create<AuthState>()(
                     AccountType(at_AccountType)
                   )
                 `)
-                .eq('UserAccount.ua_Email', email)
+                .eq('UserAccount.ua_Email', identifier)
                 .eq('li_Password', password)
-                .limit(1);
+                .single();
 
-              if (!loginError && loginData && loginData.length > 0) {
-                const dbUser = loginData[0];
+              if (!emailLoginError && emailLoginData) {
+                const dbUser = emailLoginData;
                 const accountTypeMap: { [key: string]: 'buyer' | 'baker' | 'admin' } = {
                   'buyer': 'buyer',
                   'baker': 'baker', 
@@ -154,12 +152,12 @@ export const useAuthStore = create<AuthState>()(
 
                 userData = {
                   id: `db-${dbUser.UserAccount.id_ua}`,
-                  email: dbUser.UserAccount.ua_Email,
-                  name: dbUser.UserAccount.ua_FullName,
-                  username: dbUser.li_Username,
+                  email: dbUser.UserAccount.ua_Email || '',
+                  name: dbUser.UserAccount.ua_FullName || '',
+                  username: dbUser.li_Username || '',
                   type: accountTypeMap[dbUser.UserAccount.AccountType?.at_AccountType] || 'buyer',
-                  location: dbUser.UserAccount.ua_FullAddress,
-                  zipCode: dbUser.UserAccount.ua_ZipCode?.toString(),
+                  location: dbUser.UserAccount.ua_FullAddress || '',
+                  zipCode: dbUser.UserAccount.ua_ZipCode?.toString() || '',
                   id_ua: dbUser.UserAccount.id_ua,
                   id_at: dbUser.UserAccount.id_at,
                   profilePicture: `https://images.pexels.com/photos/771742/pexels-photo-771742.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&dpr=1`
@@ -207,9 +205,9 @@ export const useAuthStore = create<AuthState>()(
               .from('UserAccount')
               .select('ua_Email')
               .eq('ua_Email', userData.email)
-              .limit(1);
+              .single();
 
-            if (existingUser && existingUser.length > 0) {
+            if (existingUser) {
               set({ loading: false });
               return { success: false, error: 'An account with this email already exists' };
             }
@@ -219,15 +217,15 @@ export const useAuthStore = create<AuthState>()(
               .from('LoginInfo')
               .select('li_Username')
               .eq('li_Username', userData.username)
-              .limit(1);
+              .single();
 
-            if (existingUsername && existingUsername.length > 0) {
+            if (existingUsername) {
               set({ loading: false });
               return { success: false, error: 'This username is already taken' };
             }
 
             // Get account type ID
-            const accountTypeMap = { buyer: 3, baker: 2, admin: 1 }; // Updated mapping
+            const accountTypeMap = { buyer: 3, baker: 2, admin: 1 };
             const accountTypeId = accountTypeMap[userData.type];
 
             // Create UserAccount record
@@ -242,9 +240,9 @@ export const useAuthStore = create<AuthState>()(
                 created_by: null
               })
               .select()
-              .limit(1);
+              .single();
 
-            if (userAccountError || !userAccountData || userAccountData.length === 0) {
+            if (userAccountError || !userAccountData) {
               throw new Error('Failed to create user account');
             }
 
@@ -252,10 +250,10 @@ export const useAuthStore = create<AuthState>()(
             const { error: loginInfoError } = await supabase
               .from('LoginInfo')
               .insert({
-                id_ua: userAccountData[0].id_ua,
+                id_ua: userAccountData.id_ua,
                 li_Username: userData.username,
                 li_Password: userData.password,
-                created_by: userAccountData[0].id_ua
+                created_by: userAccountData.id_ua
               });
 
             if (loginInfoError) {
@@ -264,7 +262,7 @@ export const useAuthStore = create<AuthState>()(
 
             // Create user object
             const newUser: User = {
-              id: `db-${userAccountData[0].id_ua}`,
+              id: `db-${userAccountData.id_ua}`,
               email: userData.email,
               name: userData.name,
               username: userData.username,
@@ -273,7 +271,7 @@ export const useAuthStore = create<AuthState>()(
               location: userData.location,
               zipCode: userData.zipCode,
               cancelationDays: userData.cancelationDays,
-              id_ua: userAccountData[0].id_ua,
+              id_ua: userAccountData.id_ua,
               id_at: accountTypeId
             };
 

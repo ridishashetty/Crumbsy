@@ -108,19 +108,6 @@ export const CakePlayground: React.FC = () => {
         try {
           console.log('📥 Loading from database...');
           
-          // Test database connection first
-          const { data: testData, error: testError } = await supabase
-            .from('users')
-            .select('count')
-            .limit(1);
-            
-          if (testError) {
-            console.error('❌ Database connection failed:', testError);
-            throw testError;
-          }
-          
-          console.log('✅ Database connection successful');
-          
           const { data: flavors, error: flavorsError } = await supabase.from('cake_flavors').select('*');
           const { data: frostings, error: frostingsError } = await supabase.from('frosting_types').select('*');
           const { data: toppings, error: toppingsError } = await supabase.from('topping_types').select('*');

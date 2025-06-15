@@ -138,7 +138,7 @@ export const useAuthStore = create<AuthState>()(
                     AccountType(at_AccountType)
                   )
                 `)
-                .eq('UserAccount.ua_Email', identifier)
+                .eq('li_Username', identifier)
                 .eq('li_Password', password)
                 .single();
 

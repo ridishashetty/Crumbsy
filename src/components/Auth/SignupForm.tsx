@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuthStore } from '../../store/authStore';
-import { Cake, Mail, Lock, User, MapPin, AtSign, AlertCircle } from 'lucide-react';
+import { Cake, Mail, Lock, User, MapPin, AtSign, AlertCircle, Loader2 } from 'lucide-react';
 
 interface SignupFormProps {
   onToggleMode: () => void;
@@ -17,24 +17,20 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onToggleMode }) => {
     zipCode: '',
   });
   const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const { signup } = useAuthStore();
+  const { signup, loading } = useAuthStore();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setIsLoading(true);
     
     // Basic validation
     if (formData.username.length < 3) {
       setError('Username must be at least 3 characters long');
-      setIsLoading(false);
       return;
     }
     
     if (formData.password.length < 6) {
       setError('Password must be at least 6 characters long');
-      setIsLoading(false);
       return;
     }
     
@@ -50,13 +46,11 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onToggleMode }) => {
       cancelationDays: formData.userType === 'baker' ? 3 : undefined,
     };
     
-    const result = signup(userData);
+    const result = await signup(userData);
     
     if (!result.success) {
       setError(result.error || 'Signup failed');
     }
-    
-    setIsLoading(false);
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -101,6 +95,7 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onToggleMode }) => {
                     value="buyer"
                     checked={formData.userType === 'buyer'}
                     onChange={(e) => setFormData(prev => ({ ...prev, userType: e.target.value as 'buyer' | 'baker' }))}
+                    disabled={loading}
                     className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300"
                   />
                   <span className="ml-2 text-sm text-gray-700">Cake Buyer</span>
@@ -111,6 +106,7 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onToggleMode }) => {
                     value="baker"
                     checked={formData.userType === 'baker'}
                     onChange={(e) => setFormData(prev => ({ ...prev, userType: e.target.value as 'buyer' | 'baker' }))}
+                    disabled={loading}
                     className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300"
                   />
                   <span className="ml-2 text-sm text-gray-700">Baker</span>
@@ -129,7 +125,8 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onToggleMode }) => {
                   required
                   value={formData.name}
                   onChange={handleInputChange}
-                  className="appearance-none relative block w-full px-10 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm"
+                  disabled={loading}
+                  className="appearance-none relative block w-full px-10 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm disabled:opacity-50"
                   placeholder="Full name"
                 />
               </div>
@@ -146,7 +143,8 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onToggleMode }) => {
                   required
                   value={formData.username}
                   onChange={handleInputChange}
-                  className="appearance-none relative block w-full px-10 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm"
+                  disabled={loading}
+                  className="appearance-none relative block w-full px-10 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm disabled:opacity-50"
                   placeholder="Username (min 3 characters)"
                 />
               </div>
@@ -164,7 +162,8 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onToggleMode }) => {
                   required
                   value={formData.email}
                   onChange={handleInputChange}
-                  className="appearance-none relative block w-full px-10 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm"
+                  disabled={loading}
+                  className="appearance-none relative block w-full px-10 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm disabled:opacity-50"
                   placeholder="Email address"
                 />
               </div>
@@ -182,7 +181,8 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onToggleMode }) => {
                   required
                   value={formData.password}
                   onChange={handleInputChange}
-                  className="appearance-none relative block w-full px-10 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm"
+                  disabled={loading}
+                  className="appearance-none relative block w-full px-10 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm disabled:opacity-50"
                   placeholder="Password (min 6 characters)"
                 />
               </div>
@@ -199,7 +199,8 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onToggleMode }) => {
                   required
                   value={formData.location}
                   onChange={handleInputChange}
-                  className="appearance-none relative block w-full px-10 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm"
+                  disabled={loading}
+                  className="appearance-none relative block w-full px-10 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm disabled:opacity-50"
                   placeholder="City, State"
                 />
               </div>
@@ -216,8 +217,10 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onToggleMode }) => {
                   required
                   value={formData.zipCode}
                   onChange={handleInputChange}
-                  className="appearance-none relative block w-full px-10 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm"
+                  disabled={loading}
+                  className="appearance-none relative block w-full px-10 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm disabled:opacity-50"
                   placeholder="ZIP Code"
+                  maxLength={10}
                 />
               </div>
             </div>
@@ -226,11 +229,11 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onToggleMode }) => {
           <div>
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={loading}
               className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isLoading ? (
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+              {loading ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
               ) : (
                 <>
                   <User className="h-5 w-5 mr-2" />
@@ -244,7 +247,8 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onToggleMode }) => {
             <button
               type="button"
               onClick={onToggleMode}
-              className="text-sm text-primary-600 hover:text-primary-500"
+              disabled={loading}
+              className="text-sm text-primary-600 hover:text-primary-500 disabled:opacity-50"
             >
               Already have an account? Sign in
             </button>

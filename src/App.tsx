@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import { LoginForm } from './components/Auth/LoginForm';
@@ -12,10 +12,23 @@ import { OrdersPage } from './components/Orders/OrdersPage';
 import { ProfilePage } from './components/Profile/ProfilePage';
 import { MessagesPage } from './components/Messages/MessagesPage';
 import { AdminPanel } from './components/Admin/AdminPanel';
+import { Loader2 } from 'lucide-react';
 
 function App() {
-  const { isAuthenticated, user } = useAuthStore();
+  const { isAuthenticated, user, loading } = useAuthStore();
   const [isLoginMode, setIsLoginMode] = useState(true);
+
+  // Show loading spinner while initializing auth
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin text-primary-600 mx-auto mb-4" />
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return isLoginMode ? (

@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { supabase } from '../lib/supabase';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 export interface User {
   id: string;
@@ -12,20 +14,23 @@ export interface User {
   zipCode?: string;
   phone?: string;
   address?: string;
-  cancelationDays?: number; // For bakers
-  password: string; // In real app, this would be hashed
+  cancelationDays?: number;
+  // Database IDs
+  id_ua?: number;
+  id_at?: number;
 }
 
 interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
-  users: User[]; // Store all registered users
-  login: (identifier: string, password: string) => { success: boolean; error?: string };
-  signup: (userData: Omit<User, 'id'>) => { success: boolean; error?: string };
-  logout: () => void;
-  updateUser: (updates: Partial<User>) => void;
-  deleteUser: (userId: string) => void; // Admin function
-  getAllUsers: () => User[]; // Admin function
+  loading: boolean;
+  login: (identifier: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  signup: (userData: Omit<User, 'id'>) => Promise<{ success: boolean; error?: string }>;
+  logout: () => Promise<void>;
+  updateUser: (updates: Partial<User>) => Promise<void>;
+  deleteUser: (userId: string) => Promise<void>;
+  getAllUsers: () => User[];
+  initializeAuth: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -33,103 +38,346 @@ export const useAuthStore = create<AuthState>()(
     (set, get) => ({
       user: null,
       isAuthenticated: false,
-      users: [],
-      
-      login: (identifier, password) => {
-        const { users } = get();
-        
-        // Special admin login
-        if (identifier === 'Admin' && password === 'admin@Crumbsy') {
-          const adminUser: User = {
-            id: 'admin-001',
-            email: 'admin@crumbsy.com',
-            name: 'System Administrator',
-            username: 'Admin',
-            type: 'admin',
-            password: 'admin@Crumbsy',
-            profilePicture: 'https://images.pexels.com/photos/1040880/pexels-photo-1040880.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&dpr=1'
-          };
+      loading: true,
+
+      initializeAuth: async () => {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
           
-          set({ user: adminUser, isAuthenticated: true });
-          return { success: true };
-        }
-        
-        // Regular user login - find by email or username and password
-        const user = users.find(u => 
-          (u.email === identifier || u.username === identifier) && 
-          u.password === password
-        );
-        
-        if (user) {
-          set({ user, isAuthenticated: true });
-          return { success: true };
-        } else {
-          return { success: false, error: 'Invalid credentials' };
+          if (session?.user) {
+            // Get user data from database
+            const userData = await getUserFromDatabase(session.user);
+            if (userData) {
+              set({ user: userData, isAuthenticated: true, loading: false });
+              return;
+            }
+          }
+          
+          set({ user: null, isAuthenticated: false, loading: false });
+        } catch (error) {
+          console.error('Auth initialization error:', error);
+          set({ user: null, isAuthenticated: false, loading: false });
         }
       },
-      
-      signup: (userData) => {
-        const { users } = get();
-        
-        // Check if email already exists
-        const existingUser = users.find(u => u.email === userData.email);
-        if (existingUser) {
-          return { success: false, error: 'An account with this email already exists' };
+
+      login: async (identifier, password) => {
+        try {
+          set({ loading: true });
+
+          // Special admin login
+          if (identifier === 'Admin' && password === 'admin@Crumbsy') {
+            const adminUser: User = {
+              id: 'admin-001',
+              email: 'admin@crumbsy.com',
+              name: 'System Administrator',
+              username: 'Admin',
+              type: 'admin',
+              profilePicture: 'https://images.pexels.com/photos/1040880/pexels-photo-1040880.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&dpr=1'
+            };
+            
+            set({ user: adminUser, isAuthenticated: true, loading: false });
+            return { success: true };
+          }
+
+          // Check if identifier is email or username
+          let email = identifier;
+          
+          // If it doesn't contain @, it's a username - look up email
+          if (!identifier.includes('@')) {
+            const { data: loginData, error: loginError } = await supabase
+              .from('LoginInfo')
+              .select(`
+                UserAccount!inner(ua_Email)
+              `)
+              .eq('li_Username', identifier)
+              .eq('li_Password', password)
+              .single();
+
+            if (loginError || !loginData) {
+              set({ loading: false });
+              return { success: false, error: 'Invalid credentials' };
+            }
+
+            email = loginData.UserAccount.ua_Email;
+          } else {
+            // Verify email/password combination
+            const { data: loginData, error: loginError } = await supabase
+              .from('LoginInfo')
+              .select(`
+                UserAccount!inner(ua_Email)
+              `)
+              .eq('UserAccount.ua_Email', email)
+              .eq('li_Password', password)
+              .single();
+
+            if (loginError || !loginData) {
+              set({ loading: false });
+              return { success: false, error: 'Invalid credentials' };
+            }
+          }
+
+          // Sign in with Supabase Auth using email
+          const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+            email,
+            password
+          });
+
+          if (authError) {
+            // If user doesn't exist in Supabase Auth, create them
+            if (authError.message.includes('Invalid login credentials')) {
+              const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+                email,
+                password
+              });
+
+              if (signUpError) {
+                set({ loading: false });
+                return { success: false, error: signUpError.message };
+              }
+
+              if (signUpData.user) {
+                const userData = await getUserFromDatabase(signUpData.user);
+                if (userData) {
+                  set({ user: userData, isAuthenticated: true, loading: false });
+                  return { success: true };
+                }
+              }
+            }
+            
+            set({ loading: false });
+            return { success: false, error: authError.message };
+          }
+
+          if (authData.user) {
+            const userData = await getUserFromDatabase(authData.user);
+            if (userData) {
+              set({ user: userData, isAuthenticated: true, loading: false });
+              return { success: true };
+            }
+          }
+
+          set({ loading: false });
+          return { success: false, error: 'Failed to load user data' };
+        } catch (error) {
+          console.error('Login error:', error);
+          set({ loading: false });
+          return { success: false, error: 'An unexpected error occurred' };
         }
-        
-        // Check if username already exists (across all user types)
-        const existingUsername = users.find(u => u.username === userData.username);
-        if (existingUsername) {
-          return { success: false, error: 'This username is already taken' };
-        }
-        
-        // Create new user
-        const newUser: User = {
-          ...userData,
-          id: Date.now().toString(),
-        };
-        
-        set((state) => ({
-          users: [...state.users, newUser],
-          user: newUser,
-          isAuthenticated: true,
-        }));
-        
-        return { success: true };
       },
-      
-      logout: () => set({ user: null, isAuthenticated: false }),
-      
-      updateUser: (updates) => set((state) => {
-        if (!state.user) return state;
-        
-        const updatedUser = { ...state.user, ...updates };
-        const updatedUsers = state.users.map(u => 
-          u.id === state.user!.id ? updatedUser : u
-        );
-        
-        return {
-          user: updatedUser,
-          users: updatedUsers,
-        };
-      }),
-      
-      deleteUser: (userId) => set((state) => ({
-        users: state.users.filter(u => u.id !== userId),
-      })),
-      
+
+      signup: async (userData) => {
+        try {
+          set({ loading: true });
+
+          // Check if email already exists
+          const { data: existingUser } = await supabase
+            .from('UserAccount')
+            .select('ua_Email')
+            .eq('ua_Email', userData.email)
+            .single();
+
+          if (existingUser) {
+            set({ loading: false });
+            return { success: false, error: 'An account with this email already exists' };
+          }
+
+          // Check if username already exists
+          const { data: existingUsername } = await supabase
+            .from('LoginInfo')
+            .select('li_Username')
+            .eq('li_Username', userData.username)
+            .single();
+
+          if (existingUsername) {
+            set({ loading: false });
+            return { success: false, error: 'This username is already taken' };
+          }
+
+          // Create Supabase Auth user
+          const { data: authData, error: authError } = await supabase.auth.signUp({
+            email: userData.email,
+            password: userData.password
+          });
+
+          if (authError) {
+            set({ loading: false });
+            return { success: false, error: authError.message };
+          }
+
+          if (!authData.user) {
+            set({ loading: false });
+            return { success: false, error: 'Failed to create account' };
+          }
+
+          // Get account type ID
+          const accountTypeMap = { buyer: 1, baker: 2, admin: 3 };
+          const accountTypeId = accountTypeMap[userData.type];
+
+          // Create UserAccount record
+          const { data: userAccountData, error: userAccountError } = await supabase
+            .from('UserAccount')
+            .insert({
+              ua_FullName: userData.name,
+              ua_Email: userData.email,
+              ua_ZipCode: userData.zipCode ? parseInt(userData.zipCode) : null,
+              ua_FullAddress: userData.location,
+              id_at: accountTypeId,
+              created_by: null
+            })
+            .select()
+            .single();
+
+          if (userAccountError || !userAccountData) {
+            set({ loading: false });
+            return { success: false, error: 'Failed to create user account' };
+          }
+
+          // Create LoginInfo record
+          const { error: loginInfoError } = await supabase
+            .from('LoginInfo')
+            .insert({
+              id_ua: userAccountData.id_ua,
+              li_Username: userData.username,
+              li_Password: userData.password,
+              created_by: userAccountData.id_ua
+            });
+
+          if (loginInfoError) {
+            set({ loading: false });
+            return { success: false, error: 'Failed to create login information' };
+          }
+
+          // Create user object
+          const newUser: User = {
+            id: authData.user.id,
+            email: userData.email,
+            name: userData.name,
+            username: userData.username,
+            type: userData.type,
+            profilePicture: userData.profilePicture,
+            location: userData.location,
+            zipCode: userData.zipCode,
+            cancelationDays: userData.cancelationDays,
+            id_ua: userAccountData.id_ua,
+            id_at: accountTypeId
+          };
+
+          set({ user: newUser, isAuthenticated: true, loading: false });
+          return { success: true };
+        } catch (error) {
+          console.error('Signup error:', error);
+          set({ loading: false });
+          return { success: false, error: 'An unexpected error occurred' };
+        }
+      },
+
+      logout: async () => {
+        await supabase.auth.signOut();
+        set({ user: null, isAuthenticated: false });
+      },
+
+      updateUser: async (updates) => {
+        const { user } = get();
+        if (!user || !user.id_ua) return;
+
+        try {
+          // Update UserAccount table
+          const { error } = await supabase
+            .from('UserAccount')
+            .update({
+              ua_ZipCode: updates.zipCode ? parseInt(updates.zipCode) : null,
+              ua_FullAddress: updates.address || updates.location,
+            })
+            .eq('id_ua', user.id_ua);
+
+          if (error) {
+            console.error('Update user error:', error);
+            return;
+          }
+
+          // Update local state
+          const updatedUser = { ...user, ...updates };
+          set({ user: updatedUser });
+        } catch (error) {
+          console.error('Update user error:', error);
+        }
+      },
+
+      deleteUser: async (userId) => {
+        // Admin function - implement as needed
+        console.log('Delete user:', userId);
+      },
+
       getAllUsers: () => {
-        const { users } = get();
-        return users;
+        // Admin function - return empty array for now
+        // In a real implementation, this would fetch from the database
+        return [];
       },
     }),
     {
       name: 'crumbsy-auth-storage',
       partialize: (state) => ({ 
-        users: state.users,
         user: state.user,
         isAuthenticated: state.isAuthenticated,
       }),
     }
   )
 );
+
+// Helper function to get user data from database
+async function getUserFromDatabase(supabaseUser: SupabaseUser): Promise<User | null> {
+  try {
+    const { data: userAccount, error } = await supabase
+      .from('UserAccount')
+      .select(`
+        *,
+        AccountType(at_AccountType),
+        LoginInfo(li_Username)
+      `)
+      .eq('ua_Email', supabaseUser.email)
+      .single();
+
+    if (error || !userAccount) {
+      console.error('Error fetching user data:', error);
+      return null;
+    }
+
+    const accountTypeMap: { [key: string]: 'buyer' | 'baker' | 'admin' } = {
+      'buyer': 'buyer',
+      'baker': 'baker', 
+      'admin': 'admin'
+    };
+
+    return {
+      id: supabaseUser.id,
+      email: userAccount.ua_Email,
+      name: userAccount.ua_FullName,
+      username: userAccount.LoginInfo?.[0]?.li_Username || '',
+      type: accountTypeMap[userAccount.AccountType?.at_AccountType] || 'buyer',
+      location: userAccount.ua_FullAddress,
+      zipCode: userAccount.ua_ZipCode?.toString(),
+      id_ua: userAccount.id_ua,
+      id_at: userAccount.id_at,
+      profilePicture: `https://images.pexels.com/photos/771742/pexels-photo-771742.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&dpr=1`
+    };
+  } catch (error) {
+    console.error('Error in getUserFromDatabase:', error);
+    return null;
+  }
+}
+
+// Initialize auth when the store is created
+if (typeof window !== 'undefined') {
+  useAuthStore.getState().initializeAuth();
+}
+
+// Listen for auth state changes
+supabase.auth.onAuthStateChange(async (event, session) => {
+  const { initializeAuth } = useAuthStore.getState();
+  
+  if (event === 'SIGNED_OUT') {
+    useAuthStore.setState({ user: null, isAuthenticated: false });
+  } else if (event === 'SIGNED_IN' && session?.user) {
+    await initializeAuth();
+  }
+});

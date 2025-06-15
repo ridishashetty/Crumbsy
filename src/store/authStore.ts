@@ -96,9 +96,11 @@ export const useAuthStore = create<AuthState>()(
               `)
               .eq('li_Username', identifier)
               .eq('li_Password', password)
-              .single();
+              .maybeSingle();
 
-            if (!loginError && loginData) {
+            if (loginError) {
+              console.log('Database login error:', loginError);
+            } else if (loginData) {
               const dbUser = loginData;
               const accountTypeMap: { [key: string]: 'buyer' | 'baker' | 'admin' } = {
                 'buyer': 'buyer',

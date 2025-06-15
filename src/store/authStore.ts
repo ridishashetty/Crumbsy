@@ -14,9 +14,8 @@ export interface User {
   phone?: string;
   address?: string;
   cancelationDays?: number;
-  // Database IDs
-  id_ua?: number;
-  id_at?: number;
+  // Database ID for new schema
+  dbId?: number;
   password?: string; // Keep for local fallback
 }
 
@@ -77,51 +76,34 @@ export const useAuthStore = create<AuthState>()(
             return { success: true };
           }
 
-          // Try database login first - only check username and password
+          // Try database login first - check username and password in new schema
           try {
-            const { data: loginData, error: loginError } = await supabase
-              .from('LoginInfo')
-              .select(`
-                li_Username,
-                li_Password,
-                UserAccount!inner(
-                  id_ua,
-                  ua_Email,
-                  ua_FullName,
-                  ua_ZipCode,
-                  ua_FullAddress,
-                  id_at,
-                  AccountType(at_AccountType)
-                )
-              `)
-              .eq('li_Username', identifier)
-              .eq('li_Password', password)
-              .maybeSingle();
+            const { data: userData, error: loginError } = await supabase
+              .from('users')
+              .select('*')
+              .eq('username', identifier)
+              .eq('password', password)
+              .single();
 
             if (loginError) {
               console.log('Database login error:', loginError);
-            } else if (loginData) {
-              const dbUser = loginData;
-              const accountTypeMap: { [key: string]: 'buyer' | 'baker' | 'admin' } = {
-                'buyer': 'buyer',
-                'baker': 'baker', 
-                'admin': 'admin'
+            } else if (userData) {
+              const user: User = {
+                id: `db-${userData.id}`,
+                email: userData.email,
+                name: userData.full_name,
+                username: userData.username,
+                type: userData.user_type,
+                profilePicture: userData.profile_picture || undefined,
+                location: userData.location || undefined,
+                zipCode: userData.zip_code || undefined,
+                phone: userData.phone || undefined,
+                address: userData.address || undefined,
+                cancelationDays: userData.cancellation_days || undefined,
+                dbId: userData.id
               };
 
-              const userData = {
-                id: `db-${dbUser.UserAccount.id_ua}`,
-                email: dbUser.UserAccount.ua_Email || '',
-                name: dbUser.UserAccount.ua_FullName || '',
-                username: dbUser.li_Username || '',
-                type: accountTypeMap[dbUser.UserAccount.AccountType?.at_AccountType] || 'buyer',
-                location: dbUser.UserAccount.ua_FullAddress || '',
-                zipCode: dbUser.UserAccount.ua_ZipCode?.toString() || '',
-                id_ua: dbUser.UserAccount.id_ua,
-                id_at: dbUser.UserAccount.id_at,
-                profilePicture: `https://images.pexels.com/photos/771742/pexels-photo-771742.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&dpr=1`
-              };
-
-              set({ user: userData, isAuthenticated: true, loading: false });
+              set({ user, isAuthenticated: true, loading: false });
               return { success: true };
             }
           } catch (dbError) {
@@ -157,9 +139,9 @@ export const useAuthStore = create<AuthState>()(
           try {
             // Check if email already exists
             const { data: existingUser } = await supabase
-              .from('UserAccount')
-              .select('ua_Email')
-              .eq('ua_Email', userData.email)
+              .from('users')
+              .select('email')
+              .eq('email', userData.email)
               .single();
 
             if (existingUser) {
@@ -169,9 +151,9 @@ export const useAuthStore = create<AuthState>()(
 
             // Check if username already exists
             const { data: existingUsername } = await supabase
-              .from('LoginInfo')
-              .select('li_Username')
-              .eq('li_Username', userData.username)
+              .from('users')
+              .select('username')
+              .eq('username', userData.username)
               .single();
 
             if (existingUsername) {
@@ -179,45 +161,32 @@ export const useAuthStore = create<AuthState>()(
               return { success: false, error: 'This username is already taken' };
             }
 
-            // Get account type ID
-            const accountTypeMap = { buyer: 3, baker: 2, admin: 1 };
-            const accountTypeId = accountTypeMap[userData.type];
-
-            // Create UserAccount record
-            const { data: userAccountData, error: userAccountError } = await supabase
-              .from('UserAccount')
+            // Create new user in database
+            const { data: newUserData, error: insertError } = await supabase
+              .from('users')
               .insert({
-                ua_FullName: userData.name,
-                ua_Email: userData.email,
-                ua_ZipCode: userData.zipCode ? parseInt(userData.zipCode) : null,
-                ua_FullAddress: userData.location,
-                id_at: accountTypeId,
-                created_by: null
+                email: userData.email,
+                username: userData.username,
+                password: userData.password || 'defaultpass',
+                full_name: userData.name,
+                user_type: userData.type,
+                profile_picture: userData.profilePicture,
+                location: userData.location,
+                zip_code: userData.zipCode,
+                phone: userData.phone,
+                address: userData.address,
+                cancellation_days: userData.cancelationDays
               })
               .select()
               .single();
 
-            if (userAccountError || !userAccountData) {
+            if (insertError || !newUserData) {
               throw new Error('Failed to create user account');
-            }
-
-            // Create LoginInfo record
-            const { error: loginInfoError } = await supabase
-              .from('LoginInfo')
-              .insert({
-                id_ua: userAccountData.id_ua,
-                li_Username: userData.username,
-                li_Password: userData.password,
-                created_by: userAccountData.id_ua
-              });
-
-            if (loginInfoError) {
-              throw new Error('Failed to create login information');
             }
 
             // Create user object
             const newUser: User = {
-              id: `db-${userAccountData.id_ua}`,
+              id: `db-${newUserData.id}`,
               email: userData.email,
               name: userData.name,
               username: userData.username,
@@ -225,9 +194,10 @@ export const useAuthStore = create<AuthState>()(
               profilePicture: userData.profilePicture,
               location: userData.location,
               zipCode: userData.zipCode,
+              phone: userData.phone,
+              address: userData.address,
               cancelationDays: userData.cancelationDays,
-              id_ua: userAccountData.id_ua,
-              id_at: accountTypeId
+              dbId: newUserData.id
             };
 
             set({ user: newUser, isAuthenticated: true, loading: false });
@@ -283,15 +253,17 @@ export const useAuthStore = create<AuthState>()(
         if (!user) return;
 
         try {
-          // Try database update if user has id_ua
-          if (user.id_ua) {
+          // Try database update if user has dbId
+          if (user.dbId) {
             const { error } = await supabase
-              .from('UserAccount')
+              .from('users')
               .update({
-                ua_ZipCode: updates.zipCode ? parseInt(updates.zipCode) : null,
-                ua_FullAddress: updates.address || updates.location,
+                location: updates.location,
+                zip_code: updates.zipCode,
+                phone: updates.phone,
+                address: updates.address,
               })
-              .eq('id_ua', user.id_ua);
+              .eq('id', user.dbId);
 
             if (error) {
               console.error('Update user error:', error);
@@ -303,7 +275,7 @@ export const useAuthStore = create<AuthState>()(
           set({ user: updatedUser });
           
           // Update in users array if it's a local user
-          if (!user.id_ua) {
+          if (!user.dbId) {
             set((state) => ({
               users: state.users.map(u => 
                 u.id === user.id ? updatedUser : u

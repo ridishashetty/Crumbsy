@@ -15,270 +15,277 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   }
 });
 
-// Database types based on your schema
+// Database types for the new simplified schema
 export interface Database {
   public: {
     Tables: {
-      AccountType: {
+      users: {
         Row: {
-          id_at: number;
-          at_AccountType: string | null;
-        };
-        Insert: {
-          id_at?: number;
-          at_AccountType?: string | null;
-        };
-        Update: {
-          id_at?: number;
-          at_AccountType?: string | null;
-        };
-      };
-      UserAccount: {
-        Row: {
-          id_ua: number;
-          id_at: number | null;
-          ua_FullName: string | null;
-          ua_Email: string | null;
-          ua_ZipCode: number | null;
-          ua_FullAddress: string | null;
-          created_by: number | null;
-          created_at: string | null;
-        };
-        Insert: {
-          id_ua?: number;
-          id_at?: number | null;
-          ua_FullName?: string | null;
-          ua_Email?: string | null;
-          ua_ZipCode?: number | null;
-          ua_FullAddress?: string | null;
-          created_by?: number | null;
-          created_at?: string | null;
-        };
-        Update: {
-          id_ua?: number;
-          id_at?: number | null;
-          ua_FullName?: string | null;
-          ua_Email?: string | null;
-          ua_ZipCode?: number | null;
-          ua_FullAddress?: string | null;
-          created_by?: number | null;
-          created_at?: string | null;
-        };
-      };
-      LoginInfo: {
-        Row: {
-          id_li: number;
-          id_ua: number | null;
-          li_Username: string | null;
-          li_Password: string | null;
+          id: number;
+          email: string;
+          username: string;
+          password: string;
+          full_name: string;
+          user_type: 'buyer' | 'baker' | 'admin';
+          profile_picture: string | null;
+          location: string | null;
+          zip_code: string | null;
+          phone: string | null;
+          address: string | null;
+          cancellation_days: number | null;
           created_at: string;
-          created_by: number | null;
-          updated_at: string | null;
-          updated_by: number | null;
+          updated_at: string;
         };
         Insert: {
-          id_li?: number;
-          id_ua?: number | null;
-          li_Username?: string | null;
-          li_Password?: string | null;
+          id?: number;
+          email: string;
+          username: string;
+          password: string;
+          full_name: string;
+          user_type: 'buyer' | 'baker' | 'admin';
+          profile_picture?: string | null;
+          location?: string | null;
+          zip_code?: string | null;
+          phone?: string | null;
+          address?: string | null;
+          cancellation_days?: number | null;
           created_at?: string;
-          created_by?: number | null;
-          updated_at?: string | null;
-          updated_by?: number | null;
+          updated_at?: string;
         };
         Update: {
-          id_li?: number;
-          id_ua?: number | null;
-          li_Username?: string | null;
-          li_Password?: string | null;
+          id?: number;
+          email?: string;
+          username?: string;
+          password?: string;
+          full_name?: string;
+          user_type?: 'buyer' | 'baker' | 'admin';
+          profile_picture?: string | null;
+          location?: string | null;
+          zip_code?: string | null;
+          phone?: string | null;
+          address?: string | null;
+          cancellation_days?: number | null;
           created_at?: string;
-          created_by?: number | null;
-          updated_at?: string | null;
-          updated_by?: number | null;
+          updated_at?: string;
         };
       };
-      CakeFlavor: {
+      cake_designs: {
         Row: {
-          id_cf: number;
-          cf_CakeFlavor: string | null;
-          cf_Color: any | null;
+          id: number;
+          user_id: number;
+          name: string;
+          shape: 'round' | 'square';
+          buttercream: any;
+          toppings: any;
+          top_text: string | null;
+          preview_image: string | null;
+          created_at: string;
+          updated_at: string;
         };
         Insert: {
-          id_cf?: number;
-          cf_CakeFlavor?: string | null;
-          cf_Color?: any | null;
+          id?: number;
+          user_id: number;
+          name: string;
+          shape?: 'round' | 'square';
+          buttercream?: any;
+          toppings?: any;
+          top_text?: string | null;
+          preview_image?: string | null;
+          created_at?: string;
+          updated_at?: string;
         };
         Update: {
-          id_cf?: number;
-          cf_CakeFlavor?: string | null;
-          cf_Color?: any | null;
+          id?: number;
+          user_id?: number;
+          name?: string;
+          shape?: 'round' | 'square';
+          buttercream?: any;
+          toppings?: any;
+          top_text?: string | null;
+          preview_image?: string | null;
+          created_at?: string;
+          updated_at?: string;
         };
       };
-      FrostingType: {
+      cake_tiers: {
         Row: {
-          id_ft: number;
-          ft_FrostingName: string | null;
-          ft_Color: any | null;
-          ff_ColorChangeAllowed: boolean | null;
+          id: number;
+          design_id: number;
+          tier_order: number;
+          flavor: string;
+          color: string;
+          frosting: string;
+          frosting_color: string;
+          top_design: string | null;
+          created_at: string;
         };
         Insert: {
-          id_ft?: number;
-          ft_FrostingName?: string | null;
-          ft_Color?: any | null;
-          ff_ColorChangeAllowed?: boolean | null;
+          id?: number;
+          design_id: number;
+          tier_order: number;
+          flavor: string;
+          color: string;
+          frosting?: string;
+          frosting_color?: string;
+          top_design?: string | null;
+          created_at?: string;
         };
         Update: {
-          id_ft?: number;
-          ft_FrostingName?: string | null;
-          ft_Color?: any | null;
-          ff_ColorChangeAllowed?: boolean | null;
+          id?: number;
+          design_id?: number;
+          tier_order?: number;
+          flavor?: string;
+          color?: string;
+          frosting?: string;
+          frosting_color?: string;
+          top_design?: string | null;
+          created_at?: string;
         };
       };
-      FrostingFlavor: {
+      orders: {
         Row: {
-          id_ff: number;
-          ff_FlavorName: string | null;
+          id: number;
+          buyer_id: number;
+          baker_id: number | null;
+          design_id: number;
+          delivery_address: string | null;
+          delivery_zip_code: string;
+          expected_delivery_date: string;
+          status: 'posted' | 'baker-assigned' | 'in-progress' | 'out-for-delivery' | 'delivered' | 'cancelled';
+          price: number | null;
+          modification_requests: string | null;
+          otp_code: string | null;
+          assigned_at: string | null;
+          created_at: string;
+          updated_at: string;
         };
         Insert: {
-          id_ff?: number;
-          ff_FlavorName?: string | null;
+          id?: number;
+          buyer_id: number;
+          baker_id?: number | null;
+          design_id: number;
+          delivery_address?: string | null;
+          delivery_zip_code: string;
+          expected_delivery_date: string;
+          status?: 'posted' | 'baker-assigned' | 'in-progress' | 'out-for-delivery' | 'delivered' | 'cancelled';
+          price?: number | null;
+          modification_requests?: string | null;
+          otp_code?: string | null;
+          assigned_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
         };
         Update: {
-          id_ff?: number;
-          ff_FlavorName?: string | null;
+          id?: number;
+          buyer_id?: number;
+          baker_id?: number | null;
+          design_id?: number;
+          delivery_address?: string | null;
+          delivery_zip_code?: string;
+          expected_delivery_date?: string;
+          status?: 'posted' | 'baker-assigned' | 'in-progress' | 'out-for-delivery' | 'delivered' | 'cancelled';
+          price?: number | null;
+          modification_requests?: string | null;
+          otp_code?: string | null;
+          assigned_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
         };
       };
-      ToppingType: {
+      quotes: {
         Row: {
-          id_tt: number;
-          tt_ToppingName: string | null;
-          tt_Icon: string | null;
+          id: number;
+          order_id: number;
+          baker_id: number;
+          price: number;
+          modification_requests: string | null;
+          message: string;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
         };
         Insert: {
-          id_tt?: number;
-          tt_ToppingName?: string | null;
-          tt_Icon?: string | null;
+          id?: number;
+          order_id: number;
+          baker_id: number;
+          price: number;
+          modification_requests?: string | null;
+          message: string;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
         };
         Update: {
-          id_tt?: number;
-          tt_ToppingName?: string | null;
-          tt_Icon?: string | null;
+          id?: number;
+          order_id?: number;
+          baker_id?: number;
+          price?: number;
+          modification_requests?: string | null;
+          message?: string;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
         };
       };
-      CakeDesign: {
+      messages: {
         Row: {
-          id_cd: number;
-          cd_Name: string;
-          id_ua: number | null;
-          cd_TextOnCake: string | null;
-          created_at: string | null;
-          created_by: number | null;
-          updated_by: number | null;
-          updated_at: string | null;
+          id: number;
+          order_id: number;
+          sender_id: number;
+          sender_type: 'buyer' | 'baker';
+          message: string;
+          image_url: string | null;
+          price: number | null;
+          is_quote: boolean | null;
+          created_at: string;
         };
         Insert: {
-          id_cd?: number;
-          cd_Name: string;
-          id_ua?: number | null;
-          cd_TextOnCake?: string | null;
-          created_at?: string | null;
-          created_by?: number | null;
-          updated_by?: number | null;
-          updated_at?: string | null;
+          id?: number;
+          order_id: number;
+          sender_id: number;
+          sender_type: 'buyer' | 'baker';
+          message: string;
+          image_url?: string | null;
+          price?: number | null;
+          is_quote?: boolean | null;
+          created_at?: string;
         };
         Update: {
-          id_cd?: number;
-          cd_Name?: string;
-          id_ua?: number | null;
-          cd_TextOnCake?: string | null;
-          created_at?: string | null;
-          created_by?: number | null;
-          updated_by?: number | null;
-          updated_at?: string | null;
+          id?: number;
+          order_id?: number;
+          sender_id?: number;
+          sender_type?: 'buyer' | 'baker';
+          message?: string;
+          image_url?: string | null;
+          price?: number | null;
+          is_quote?: boolean | null;
+          created_at?: string;
         };
       };
-      CakeTier: {
+      portfolio_items: {
         Row: {
-          id_ct: number;
-          id_ua: number | null;
-          id_cf: number | null;
-          id_ft: number | null;
-          id_ff: number | null;
-          ct_FrostingColor: any | null;
-          ct_CakeColor: any | null;
-          created_by: number | null;
-          created_at: string | null;
-          updated_by: number | null;
-          updated_at: string | null;
+          id: number;
+          baker_id: number;
+          image_url: string;
+          caption: string;
+          created_at: string;
+          updated_at: string;
         };
         Insert: {
-          id_ct?: number;
-          id_ua?: number | null;
-          id_cf?: number | null;
-          id_ft?: number | null;
-          id_ff?: number | null;
-          ct_FrostingColor?: any | null;
-          ct_CakeColor?: any | null;
-          created_by?: number | null;
-          created_at?: string | null;
-          updated_by?: number | null;
-          updated_at?: string | null;
+          id?: number;
+          baker_id: number;
+          image_url: string;
+          caption: string;
+          created_at?: string;
+          updated_at?: string;
         };
         Update: {
-          id_ct?: number;
-          id_ua?: number | null;
-          id_cf?: number | null;
-          id_ft?: number | null;
-          id_ff?: number | null;
-          ct_FrostingColor?: any | null;
-          ct_CakeColor?: any | null;
-          created_by?: number | null;
-          created_at?: string | null;
-          updated_by?: number | null;
-          updated_at?: string | null;
-        };
-      };
-      CakeDesignTier: {
-        Row: {
-          id_cdt: number;
-          id_cd: number | null;
-          id_ct: number | null;
-          created_at: string | null;
-          created_by: number | null;
-          cdt_deleted: boolean | null;
-        };
-        Insert: {
-          id_cdt?: number;
-          id_cd?: number | null;
-          id_ct?: number | null;
-          created_at?: string | null;
-          created_by?: number | null;
-          cdt_deleted?: boolean | null;
-        };
-        Update: {
-          id_cdt?: number;
-          id_cd?: number | null;
-          id_ct?: number | null;
-          created_at?: string | null;
-          created_by?: number | null;
-          cdt_deleted?: boolean | null;
-        };
-      };
-      Orders: {
-        Row: {
-          id_o: number;
-          id_cd: number | null;
-          baker_ua: number | null;
-        };
-        Insert: {
-          id_o?: number;
-          id_cd?: number | null;
-          baker_ua?: number | null;
-        };
-        Update: {
-          id_o?: number;
-          id_cd?: number | null;
-          baker_ua?: number | null;
+          id?: number;
+          baker_id?: number;
+          image_url?: string;
+          caption?: string;
+          created_at?: string;
+          updated_at?: string;
         };
       };
     };

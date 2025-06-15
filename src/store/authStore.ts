@@ -77,11 +77,8 @@ export const useAuthStore = create<AuthState>()(
             return { success: true };
           }
 
-          // Try database login first
+          // Try database login first - only check username and password
           try {
-            let userData = null;
-            
-            // Try username login first
             const { data: loginData, error: loginError } = await supabase
               .from('LoginInfo')
               .select(`
@@ -109,7 +106,7 @@ export const useAuthStore = create<AuthState>()(
                 'admin': 'admin'
               };
 
-              userData = {
+              const userData = {
                 id: `db-${dbUser.UserAccount.id_ua}`,
                 email: dbUser.UserAccount.ua_Email || '',
                 name: dbUser.UserAccount.ua_FullName || '',
@@ -121,51 +118,7 @@ export const useAuthStore = create<AuthState>()(
                 id_at: dbUser.UserAccount.id_at,
                 profilePicture: `https://images.pexels.com/photos/771742/pexels-photo-771742.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&dpr=1`
               };
-            } else {
-              // Try email login if username failed
-              const { data: emailLoginData, error: emailLoginError } = await supabase
-                .from('LoginInfo')
-                .select(`
-                  li_Username,
-                  li_Password,
-                  UserAccount!inner(
-                    id_ua,
-                    ua_Email,
-                    ua_FullName,
-                    ua_ZipCode,
-                    ua_FullAddress,
-                    id_at,
-                    AccountType(at_AccountType)
-                  )
-                `)
-                .eq('li_Username', identifier)
-                .eq('li_Password', password)
-                .single();
 
-              if (!emailLoginError && emailLoginData) {
-                const dbUser = emailLoginData;
-                const accountTypeMap: { [key: string]: 'buyer' | 'baker' | 'admin' } = {
-                  'buyer': 'buyer',
-                  'baker': 'baker', 
-                  'admin': 'admin'
-                };
-
-                userData = {
-                  id: `db-${dbUser.UserAccount.id_ua}`,
-                  email: dbUser.UserAccount.ua_Email || '',
-                  name: dbUser.UserAccount.ua_FullName || '',
-                  username: dbUser.li_Username || '',
-                  type: accountTypeMap[dbUser.UserAccount.AccountType?.at_AccountType] || 'buyer',
-                  location: dbUser.UserAccount.ua_FullAddress || '',
-                  zipCode: dbUser.UserAccount.ua_ZipCode?.toString() || '',
-                  id_ua: dbUser.UserAccount.id_ua,
-                  id_at: dbUser.UserAccount.id_at,
-                  profilePicture: `https://images.pexels.com/photos/771742/pexels-photo-771742.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&dpr=1`
-                };
-              }
-            }
-
-            if (userData) {
               set({ user: userData, isAuthenticated: true, loading: false });
               return { success: true };
             }

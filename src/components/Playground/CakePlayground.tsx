@@ -102,25 +102,30 @@ export const CakePlayground: React.FC = () => {
       setLoading(true);
       
       try {
-        console.log('Loading cake playground data...');
+        console.log('🔄 Loading cake playground data...');
         
         // Load options from database
         try {
-          const { data: flavors } = await supabase.from('cake_flavors').select('*');
-          const { data: frostings } = await supabase.from('frosting_types').select('*');
-          const { data: toppings } = await supabase.from('topping_types').select('*');
+          console.log('📥 Loading from database...');
+          const { data: flavors, error: flavorsError } = await supabase.from('cake_flavors').select('*');
+          const { data: frostings, error: frostingsError } = await supabase.from('frosting_types').select('*');
+          const { data: toppings, error: toppingsError } = await supabase.from('topping_types').select('*');
           
-          if (flavors) {
+          if (flavorsError) {
+            console.error('❌ Error loading flavors:', flavorsError);
+          } else if (flavors) {
             const flavorOptions = flavors.map(f => ({
               id: f.id.toString(),
               name: f.name,
               color: f.color
             }));
             setCakeFlavors(flavorOptions);
-            console.log('Loaded cake flavors from database:', flavorOptions.length);
+            console.log('✅ Loaded cake flavors from database:', flavorOptions.length);
           }
           
-          if (frostings) {
+          if (frostingsError) {
+            console.error('❌ Error loading frostings:', frostingsError);
+          } else if (frostings) {
             const frostingOptions = frostings.map(f => ({
               id: f.id.toString(),
               name: f.name,
@@ -128,39 +133,47 @@ export const CakePlayground: React.FC = () => {
               hasCustomColor: f.color_customizable
             }));
             setFrostingTypes(frostingOptions);
-            console.log('Loaded frosting types from database:', frostingOptions.length);
+            console.log('✅ Loaded frosting types from database:', frostingOptions.length);
           }
           
-          if (toppings) {
+          if (toppingsError) {
+            console.error('❌ Error loading toppings:', toppingsError);
+          } else if (toppings) {
             const toppingOptions = toppings.map(t => ({
               id: t.id.toString(),
               name: t.name,
               icon: t.icon
             }));
             setToppingTypes(toppingOptions);
-            console.log('Loaded topping types from database:', toppingOptions.length);
+            console.log('✅ Loaded topping types from database:', toppingOptions.length);
           }
-        } catch (dbError) {
-          console.log('Database load failed, using defaults:', dbError);
           
-          // Fallback to default options
+          // If any database load failed, use defaults
+          if (flavorsError || frostingsError || toppingsError) {
+            throw new Error('Some database loads failed');
+          }
+          
+        } catch (dbError) {
+          console.log('⚠️ Database load failed, using defaults:', dbError);
+          
+          // Fallback to default options with EXACT names that match database
           const defaultCakeFlavors: CakeFlavor[] = [
-            { id: '1', name: 'Vanilla', color: '#FFF8DC' },
-            { id: '2', name: 'Chocolate', color: '#8B4513' },
-            { id: '3', name: 'Strawberry', color: '#FFB6C1' },
-            { id: '4', name: 'Lemon', color: '#FFFACD' },
-            { id: '5', name: 'Red Velvet', color: '#DC143C' },
-            { id: '6', name: 'Carrot', color: '#FF8C00' }
+            { id: '1', name: 'vanilla', color: '#FFF8DC' },
+            { id: '2', name: 'chocolate', color: '#8B4513' },
+            { id: '3', name: 'strawberry', color: '#FFB6C1' },
+            { id: '4', name: 'lemon', color: '#FFFACD' },
+            { id: '5', name: 'red velvet', color: '#DC143C' },
+            { id: '6', name: 'carrot', color: '#FF8C00' }
           ];
 
           const defaultFrostingTypes: FrostingType[] = [
-            { id: '1', name: 'American Buttercream', defaultColor: '#FFFFFF', hasCustomColor: true },
-            { id: '2', name: 'Italian Buttercream', defaultColor: '#FFFEF7', hasCustomColor: true },
-            { id: '3', name: 'French Buttercream', defaultColor: '#FFF8DC', hasCustomColor: true },
-            { id: '4', name: 'Whipped Cream', defaultColor: '#FFFAFA', hasCustomColor: true },
-            { id: '5', name: 'Ganache', defaultColor: '#654321', hasCustomColor: false },
-            { id: '6', name: 'Cream Cheese Frosting', defaultColor: '#F5F5DC', hasCustomColor: true },
-            { id: '7', name: 'Swiss Meringue', defaultColor: '#FFFEF7', hasCustomColor: true }
+            { id: '1', name: 'american buttercream', defaultColor: '#FFFFFF', hasCustomColor: true },
+            { id: '2', name: 'italian buttercream', defaultColor: '#FFFEF7', hasCustomColor: true },
+            { id: '3', name: 'french buttercream', defaultColor: '#FFF8DC', hasCustomColor: true },
+            { id: '4', name: 'whipped cream', defaultColor: '#FFFAFA', hasCustomColor: true },
+            { id: '5', name: 'ganache', defaultColor: '#654321', hasCustomColor: false },
+            { id: '6', name: 'cream cheese frosting', defaultColor: '#F5F5DC', hasCustomColor: true },
+            { id: '7', name: 'swiss meringue', defaultColor: '#FFFEF7', hasCustomColor: true }
           ];
 
           const defaultToppingTypes: ToppingType[] = [
@@ -181,13 +194,15 @@ export const CakePlayground: React.FC = () => {
 
         // Load user designs if user is logged in
         if (user) {
+          console.log('👤 Loading user designs for:', user.username);
           await loadUserDesigns(user.id);
         }
         
       } catch (error) {
-        console.error('Error loading data:', error);
+        console.error('❌ Error loading data:', error);
       } finally {
         setLoading(false);
+        console.log('✅ Data loading complete');
       }
     };
 
@@ -463,11 +478,13 @@ export const CakePlayground: React.FC = () => {
       return;
     }
 
+    console.log('🎯 STARTING SAVE PROCESS');
+    console.log('User:', user.username, 'ID:', user.id);
+    console.log('Design name:', design.name);
+    
     setSaving(true);
     
     try {
-      console.log('Starting save process...');
-      
       const designToSave = {
         ...design,
         id: design.id || Date.now().toString(),
@@ -475,12 +492,14 @@ export const CakePlayground: React.FC = () => {
         userId: user.id
       };
       
-      console.log('Design to save:', designToSave);
+      console.log('💾 About to save design:', designToSave.name);
       
       await saveDesign(designToSave, user.id);
       
       // Clear current design to refresh playground
       setCurrentDesign(null);
+      
+      console.log('✅ Save completed successfully!');
       
       // Show success message
       const successDiv = document.createElement('div');
@@ -500,8 +519,25 @@ export const CakePlayground: React.FC = () => {
         }
       }, 3000);
     } catch (error) {
-      console.error('Error saving design:', error);
-      alert('Failed to save design. Please try again.');
+      console.error('❌ Save failed:', error);
+      
+      // Show error message
+      const errorDiv = document.createElement('div');
+      errorDiv.className = 'fixed top-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 flex items-center space-x-2';
+      errorDiv.innerHTML = `
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+        </svg>
+        <span>Failed to save design. Please try again.</span>
+      `;
+      
+      document.body.appendChild(errorDiv);
+      
+      setTimeout(() => {
+        if (document.body.contains(errorDiv)) {
+          document.body.removeChild(errorDiv);
+        }
+      }, 5000);
     } finally {
       setSaving(false);
     }
@@ -866,9 +902,9 @@ export const CakePlayground: React.FC = () => {
                             {cakeFlavors.map(flavor => (
                               <button
                                 key={flavor.id}
-                                onClick={() => updateTier(index, { flavor: flavor.name.toLowerCase(), color: flavor.color })}
+                                onClick={() => updateTier(index, { flavor: flavor.name, color: flavor.color })}
                                 className={`p-2 rounded-lg border-2 transition-all text-xs ${
-                                  tier.flavor === flavor.name.toLowerCase()
+                                  tier.flavor === flavor.name
                                     ? 'border-primary-500 bg-primary-50'
                                     : 'border-gray-200 hover:border-gray-300'
                                 }`}
@@ -953,7 +989,7 @@ export const CakePlayground: React.FC = () => {
                               <button
                                 key={frosting.id}
                                 onClick={() => {
-                                  const updates: any = { frosting: frosting.name.toLowerCase() };
+                                  const updates: any = { frosting: frosting.name };
                                   // Reset custom color when changing frosting type
                                   if (frosting.hasCustomColor) {
                                     updates.frostingColor = frosting.defaultColor;
@@ -963,7 +999,7 @@ export const CakePlayground: React.FC = () => {
                                   updateTier(index, updates);
                                 }}
                                 className={`p-2 rounded-lg border-2 transition-all text-xs text-left ${
-                                  (tier.frosting || 'american buttercream') === frosting.name.toLowerCase()
+                                  (tier.frosting || 'american buttercream') === frosting.name
                                     ? 'border-secondary-500 bg-secondary-50'
                                     : 'border-gray-200 hover:border-gray-300'
                                 }`}
@@ -991,10 +1027,10 @@ export const CakePlayground: React.FC = () => {
                               <button
                                 key={flavor.id}
                                 onClick={() => updateDesign({ 
-                                  buttercream: { flavor: flavor.name.toLowerCase(), color: flavor.color }
+                                  buttercream: { flavor: flavor.name, color: flavor.color }
                                 })}
                                 className={`p-2 rounded-lg border-2 transition-all text-xs ${
-                                  design.buttercream.flavor === flavor.name.toLowerCase()
+                                  design.buttercream.flavor === flavor.name
                                     ? 'border-secondary-500 bg-secondary-50'
                                     : 'border-gray-200 hover:border-gray-300'
                                 }`}
